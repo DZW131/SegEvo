@@ -46,6 +46,32 @@ def boundary(mask: np.ndarray) -> np.ndarray:
     return np.logical_xor(mask_b, eroded)
 
 
+def boundary_dice(pred: np.ndarray, gt: np.ndarray, width: int = 2, eps: float = 1e-8) -> float:
+    pred_b = binarize(pred)
+    gt_b = binarize(gt)
+    if not pred_b.any() and not gt_b.any():
+        return 1.0
+    if not pred_b.any() or not gt_b.any():
+        return 0.0
+
+    pred_band = boundary_band(pred_b, width=width)
+    gt_band = boundary_band(gt_b, width=width)
+    denom = pred_band.sum() + gt_band.sum()
+    if denom == 0:
+        return 1.0
+    overlap = np.logical_and(pred_band, gt_band).sum()
+    return float((2.0 * overlap + eps) / (denom + eps))
+
+
+def boundary_band(mask: np.ndarray, width: int = 2) -> np.ndarray:
+    mask_b = binarize(mask)
+    if not mask_b.any():
+        return np.zeros(mask_b.shape, dtype=bool)
+    structure = ndimage.generate_binary_structure(mask_b.ndim, 1)
+    surface = boundary(mask_b)
+    return ndimage.binary_dilation(surface, structure=structure, iterations=max(1, int(width)))
+
+
 def hd95(pred: np.ndarray, gt: np.ndarray, spacing: tuple[float, ...] | None = None) -> float:
     pred_b = binarize(pred)
     gt_b = binarize(gt)
@@ -92,9 +118,11 @@ def summarize_binary_segmentation(
     gt: np.ndarray,
     spacing: tuple[float, ...] | None = None,
     surface_tolerance: float = 1.0,
+    boundary_width: int = 2,
 ) -> dict[str, float]:
     return {
         "dice": dice_score(pred, gt),
+        "boundary_dice": boundary_dice(pred, gt, width=boundary_width),
         "hd95": hd95(pred, gt, spacing=spacing),
         "surface_dice": surface_dice(
             pred,

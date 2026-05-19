@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from segevo.artifacts import list_cases, list_epochs, load_array, read_manifest
+from segevo.boundary_learning import boundary_learning_records
 from segevo.feature_space import (
     available_feature_layers,
     load_feature_space,
@@ -55,13 +56,18 @@ def run_dashboard(run_dir: str | Path) -> None:
             return
         epoch = st.select_slider("Epoch", options=epochs, value=epochs[-1])
 
-    timeline_tab, feature_space_tab = st.tabs(["Case Timeline", "Feature Space"])
+    timeline_tab, feature_space_tab, boundary_tab = st.tabs(
+        ["Case Timeline", "Feature Space", "Boundary Learning"]
+    )
 
     with timeline_tab:
         _render_case_timeline(st, px, run_path, case_id, epoch, metrics)
 
     with feature_space_tab:
         _render_feature_space(st, px, run_path, case_id)
+
+    with boundary_tab:
+        _render_boundary_learning(st, px, run_path, case_id)
 
 
 def _render_case_timeline(
@@ -208,6 +214,124 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
             .sort_values(["epoch", "region"])
         )
         st.dataframe(summary, use_container_width=True)
+
+
+def _render_boundary_learning(st: object, px: object, run_path: Path, current_case_id: str) -> None:
+    layers = available_feature_layers(run_path)
+    controls, plot_area = st.columns([1, 3])
+    with controls:
+        case_scope = st.radio(
+            "Boundary cases",
+            ["Current case", "All cases"],
+            horizontal=False,
+            key="boundary_case_scope",
+        )
+        if case_scope == "Current case":
+            selected_cases = [current_case_id]
+        else:
+            selected_cases = list_cases(run_path)
+
+        if layers:
+            layer = st.selectbox("Boundary layer", layers, key="boundary_layer")
+            selected_layers = [layer]
+        else:
+            layer = "metrics_only"
+            selected_layers = [layer]
+            st.info("No feature samples found; showing boundary metrics only.")
+
+        boundary_width = st.slider(
+            "Boundary width",
+            min_value=1,
+            max_value=8,
+            value=2,
+            step=1,
+        )
+        surface_tolerance = st.slider(
+            "Surface tolerance",
+            min_value=0.5,
+            max_value=5.0,
+            value=1.0,
+            step=0.5,
+        )
+
+    records = boundary_learning_records(
+        run_path,
+        cases=selected_cases,
+        layers=selected_layers,
+        boundary_width=boundary_width,
+        surface_tolerance=surface_tolerance,
+    )
+    if not records:
+        st.info("No boundary-learning records found for this selection.")
+        return
+
+    df = pd.DataFrame(records)
+    numeric_columns = [
+        "boundary_dice",
+        "surface_dice",
+        "hd95",
+        "boundary_to_foreground",
+        "boundary_to_hard_background",
+        "boundary_hard_margin",
+    ]
+    for column in numeric_columns:
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+
+    if case_scope == "All cases":
+        plot_df = (
+            df.groupby(["epoch", "layer"], as_index=False)[numeric_columns]
+            .mean(numeric_only=True)
+            .sort_values("epoch")
+        )
+    else:
+        plot_df = df.sort_values("epoch")
+
+    with plot_area:
+        st.subheader("Boundary Metrics")
+        metric_choices = [
+            metric
+            for metric in ["boundary_dice", "surface_dice", "hd95"]
+            if metric in plot_df.columns
+        ]
+        selected_metrics = st.multiselect(
+            "Boundary metrics",
+            metric_choices,
+            default=metric_choices[:2],
+        )
+        if selected_metrics:
+            metric_long = plot_df.melt(
+                id_vars=["epoch"],
+                value_vars=selected_metrics,
+                var_name="metric",
+                value_name="value",
+            )
+            fig = px.line(metric_long, x="epoch", y="value", color="metric", markers=True)
+            st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Boundary Feature Separation")
+        separation_choices = [
+            metric
+            for metric in [
+                "boundary_to_hard_background",
+                "boundary_to_foreground",
+                "boundary_hard_margin",
+            ]
+            if metric in plot_df.columns and plot_df[metric].notna().any()
+        ]
+        if separation_choices:
+            separation_long = plot_df.melt(
+                id_vars=["epoch"],
+                value_vars=separation_choices,
+                var_name="metric",
+                value_name="value",
+            ).dropna(subset=["value"])
+            fig = px.line(separation_long, x="epoch", y="value", color="metric", markers=True)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("This selection does not contain enough boundary/hard-background samples.")
+
+        st.dataframe(df, use_container_width=True)
 
 
 def _select_slice(st: object, *arrays: np.ndarray) -> tuple[np.ndarray, ...]:

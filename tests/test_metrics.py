@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from segevo.metrics import dice_score, error_map, hd95, surface_dice, volume_error
+from segevo.metrics import boundary_dice, dice_score, error_map, hd95, surface_dice, volume_error
 
 
 def test_dice_empty_masks_are_perfect():
@@ -28,4 +28,12 @@ def test_surface_metrics_for_identical_masks():
     mask[4:12, 4:12] = 1
     assert hd95(mask, mask) == 0.0
     assert surface_dice(mask, mask) == 1.0
+    assert boundary_dice(mask, mask) == 1.0
 
+
+def test_boundary_dice_penalizes_shifted_boundary():
+    gt = np.zeros((16, 16), dtype=np.uint8)
+    pred = np.zeros((16, 16), dtype=np.uint8)
+    gt[4:12, 4:12] = 1
+    pred[5:13, 5:13] = 1
+    assert 0.0 < boundary_dice(pred, gt) < 1.0

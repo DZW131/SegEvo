@@ -120,6 +120,7 @@ class SegEvoLogger:
             gt_np,
             spacing=self.spacing,
             surface_tolerance=self.surface_tolerance,
+            boundary_width=self.boundary_width,
         )
         row = {
             "epoch": int(epoch),

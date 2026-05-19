@@ -46,6 +46,8 @@ The dashboard currently has two main tabs:
   sample counts for the selected case and epoch.
 - `Feature Space`: stable PCA projection of sampled layer features across selected
   cases and epochs, colored by foreground, boundary, hard background, FP, and FN.
+- `Boundary Learning`: boundary Dice, surface Dice, HD95, and boundary feature
+  separation trends for selected cases and layers.
 
 ## PyTorch U-Net Example
 
@@ -177,11 +179,12 @@ The five sampled regions are `foreground`, `boundary`, `hard_background`,
   voxels.
 - Feature Space dashboard tab with stable PCA projection across selected cases and
   epochs.
+- Boundary Learning dashboard tab with boundary metrics and boundary-vs-background
+  feature separation.
 
 ## Roadmap
 
 - UMAP feature-space replay across epochs and layers.
-- Boundary-learning view with boundary Dice, surface Dice, and HD95 timeline.
 - Failure explorer for unstable, forgotten, and persistently wrong cases.
 - More PyTorch examples for common 2D and 3D segmentation loops.
 - Uncertainty and attention/Grad-CAM artifact conventions.

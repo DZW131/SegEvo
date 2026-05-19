@@ -24,6 +24,7 @@ def test_logger_writes_case_artifacts(tmp_path):
         metrics = list(csv.DictReader(handle))
     assert metrics[0]["case_id"] == "case/001"
     assert 0.0 < float(metrics[0]["dice"]) < 1.0
+    assert 0.0 <= float(metrics[0]["boundary_dice"]) <= 1.0
 
 
 def test_logger_samples_spatial_features(tmp_path):

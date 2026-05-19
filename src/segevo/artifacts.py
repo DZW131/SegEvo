@@ -14,6 +14,7 @@ METRICS_COLUMNS = [
     "epoch",
     "case_id",
     "dice",
+    "boundary_dice",
     "hd95",
     "surface_dice",
     "volume_error",
