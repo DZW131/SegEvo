@@ -8,8 +8,8 @@ the evolution of predictions, error regions, metrics, and sampled intermediate
 representations in a lightweight dashboard.
 
 The project is intentionally a low-intrusion observation layer, not a new training
-framework. A typical PyTorch, MONAI, or nnU-Net workflow should only need a few lines
-to write SegEvo artifacts.
+framework. A typical PyTorch segmentation workflow should only need a few lines to
+write SegEvo artifacts.
 
 ## Why SegEvo
 
@@ -39,6 +39,36 @@ ssh -L 7860:localhost:7860 user@server
 ```
 
 Then open `http://localhost:7860`.
+
+## PyTorch U-Net Example
+
+SegEvo includes a real PyTorch training example with a tiny U-Net and a synthetic
+lesion-like dataset. It is intentionally small enough to run on CPU, but it follows
+the same pattern as a normal segmentation project:
+
+```bash
+pip install -e ".[torch,dashboard]"
+python examples/pytorch_unet_training.py --epochs 3 --run-dir runs/pytorch_unet
+segevo-dashboard --run runs/pytorch_unet --host 0.0.0.0 --port 7860
+```
+
+The SegEvo-specific integration is only these steps:
+
+```python
+logger = SegEvoLogger(run_dir="runs/pytorch_unet", manifest={...})
+logger.attach(model, layers=["enc2", "bottleneck", "dec1"])
+
+# inside validation or probe-case logging
+logger.log_case(
+    epoch=epoch,
+    case_id=case_id,
+    image=image,
+    gt=gt,
+    pred=pred,
+    uncertainty=uncertainty,
+    metrics={"train_loss": train_loss, "probe_dice": probe_dice},
+)
+```
 
 ## Minimal Training Integration
 
@@ -130,7 +160,7 @@ runs/liver_unet/
 - PCA/UMAP feature-space replay across epochs and layers.
 - Boundary-learning view with boundary Dice, surface Dice, and HD95 timeline.
 - Failure explorer for unstable, forgotten, and persistently wrong cases.
-- MONAI and nnU-Net adapter examples.
+- More PyTorch examples for common 2D and 3D segmentation loops.
 - Uncertainty and attention/Grad-CAM artifact conventions.
 
 ## Development
