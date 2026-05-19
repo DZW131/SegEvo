@@ -8,6 +8,11 @@ import numpy as np
 import pandas as pd
 
 from segevo.artifacts import list_cases, list_epochs, load_array, read_manifest
+from segevo.feature_space import (
+    available_feature_layers,
+    load_feature_space,
+    project_feature_space,
+)
 
 
 ERROR_COLORS = np.asarray(
@@ -50,6 +55,23 @@ def run_dashboard(run_dir: str | Path) -> None:
             return
         epoch = st.select_slider("Epoch", options=epochs, value=epochs[-1])
 
+    timeline_tab, feature_space_tab = st.tabs(["Case Timeline", "Feature Space"])
+
+    with timeline_tab:
+        _render_case_timeline(st, px, run_path, case_id, epoch, metrics)
+
+    with feature_space_tab:
+        _render_feature_space(st, px, run_path, case_id)
+
+
+def _render_case_timeline(
+    st: object,
+    px: object,
+    run_path: Path,
+    case_id: str,
+    epoch: int,
+    metrics: pd.DataFrame,
+) -> None:
     case_path = run_path / "cases" / case_id
     epoch_path = case_path / "epochs" / f"{epoch:04d}"
     image = load_array(case_path / "image.npy")
@@ -94,28 +116,98 @@ def run_dashboard(run_dir: str | Path) -> None:
     features_path = epoch_path / "features.npz"
     if features_path.exists():
         st.subheader("Feature Summaries")
-        features = np.load(features_path)
-        rows = []
-        for name in features.files:
-            if not name.endswith("__summary"):
-                continue
-            values = np.asarray(features[name]).ravel()
-            rows.append(
-                {
-                    "layer": name.replace("__summary", ""),
-                    "mean": values[0] if values.size > 0 else np.nan,
-                    "std": values[1] if values.size > 1 else np.nan,
-                    "min": values[2] if values.size > 2 else np.nan,
-                    "max": values[3] if values.size > 3 else np.nan,
-                }
-            )
-        if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        with np.load(features_path) as features:
+            rows = []
+            for name in features.files:
+                if not name.endswith("__summary"):
+                    continue
+                values = np.asarray(features[name]).ravel()
+                rows.append(
+                    {
+                        "layer": name.replace("__summary", ""),
+                        "mean": values[0] if values.size > 0 else np.nan,
+                        "std": values[1] if values.size > 1 else np.nan,
+                        "min": values[2] if values.size > 2 else np.nan,
+                        "max": values[3] if values.size > 3 else np.nan,
+                    }
+                )
+            if rows:
+                st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
-        sample_rows = _feature_sample_counts(features)
-        if sample_rows:
-            st.subheader("Feature Sample Counts")
-            st.dataframe(pd.DataFrame(sample_rows), use_container_width=True)
+            sample_rows = _feature_sample_counts(features)
+            if sample_rows:
+                st.subheader("Feature Sample Counts")
+                st.dataframe(pd.DataFrame(sample_rows), use_container_width=True)
+
+
+def _render_feature_space(st: object, px: object, run_path: Path, current_case_id: str) -> None:
+    layers = available_feature_layers(run_path)
+    if not layers:
+        st.info("No feature samples found. Run a logger with attached layers first.")
+        return
+
+    controls, plot_area = st.columns([1, 3])
+    with controls:
+        layer = st.selectbox("Layer", layers)
+        case_scope = st.radio("Cases", ["Current case", "All cases"], horizontal=False)
+        if case_scope == "Current case":
+            selected_cases = [current_case_id]
+        else:
+            selected_cases = list_cases(run_path)
+
+        available_epochs = sorted(
+            {
+                epoch
+                for selected_case in selected_cases
+                for epoch in list_epochs(run_path, selected_case)
+            }
+        )
+        default_epochs = available_epochs[-min(6, len(available_epochs)) :]
+        selected_epochs = st.multiselect("Epochs", available_epochs, default=default_epochs)
+        max_points = st.slider("Max points", min_value=500, max_value=10000, value=4000, step=500)
+
+    if not selected_epochs:
+        st.info("Select at least one epoch.")
+        return
+
+    space = load_feature_space(
+        run_path,
+        layer=layer,
+        cases=selected_cases,
+        epochs=selected_epochs,
+        max_points=max_points,
+    )
+    if space.features.size == 0:
+        st.info("No sampled features found for this layer/case/epoch selection.")
+        return
+
+    projection = project_feature_space(space)
+    df = _projection_dataframe(projection)
+    title = (
+        f"{layer} PCA "
+        f"(PC1 {projection.explained_variance_ratio[0]:.1%}, "
+        f"PC2 {projection.explained_variance_ratio[1]:.1%})"
+    )
+    fig = px.scatter(
+        df,
+        x="pc1",
+        y="pc2",
+        color="region",
+        symbol="epoch_label",
+        hover_data=["case_id", "epoch", "coord"],
+        title=title,
+        opacity=0.72,
+    )
+    fig.update_traces(marker={"size": 6})
+    with plot_area:
+        st.plotly_chart(fig, use_container_width=True)
+        summary = (
+            df.groupby(["epoch", "region"])
+            .size()
+            .reset_index(name="samples")
+            .sort_values(["epoch", "region"])
+        )
+        st.dataframe(summary, use_container_width=True)
 
 
 def _select_slice(st: object, *arrays: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -183,3 +275,29 @@ def _feature_sample_counts(features: np.lib.npyio.NpzFile) -> list[dict[str, obj
                 region_name = str(region_id)
             rows.append({"layer": layer, "region": region_name, "samples": int(count)})
     return rows
+
+
+def _projection_dataframe(projection: object) -> pd.DataFrame:
+    region_names = list(projection.region_names)
+    region_labels = []
+    for region_id in projection.region_ids:
+        if int(region_id) < len(region_names):
+            region_labels.append(region_names[int(region_id)])
+        else:
+            region_labels.append(str(int(region_id)))
+
+    coords = [
+        ",".join(str(int(value)) for value in row)
+        for row in np.asarray(projection.feature_coords)
+    ]
+    return pd.DataFrame(
+        {
+            "pc1": projection.x,
+            "pc2": projection.y,
+            "region": region_labels,
+            "case_id": projection.case_ids,
+            "epoch": projection.epochs,
+            "epoch_label": projection.epochs.astype(str),
+            "coord": coords,
+        }
+    )

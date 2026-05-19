@@ -40,6 +40,13 @@ ssh -L 7860:localhost:7860 user@server
 
 Then open `http://localhost:7860`.
 
+The dashboard currently has two main tabs:
+
+- `Case Timeline`: image, GT, prediction, FP/FN error map, metrics, and feature
+  sample counts for the selected case and epoch.
+- `Feature Space`: stable PCA projection of sampled layer features across selected
+  cases and epochs, colored by foreground, boundary, hard background, FP, and FN.
+
 ## PyTorch U-Net Example
 
 SegEvo includes a real PyTorch training example with a tiny U-Net and a synthetic
@@ -168,10 +175,12 @@ The five sampled regions are `foreground`, `boundary`, `hard_background`,
   feature vectors.
 - Feature sampling for foreground, boundary, hard background, FP, and FN pixels or
   voxels.
+- Feature Space dashboard tab with stable PCA projection across selected cases and
+  epochs.
 
 ## Roadmap
 
-- PCA/UMAP feature-space replay across epochs and layers.
+- UMAP feature-space replay across epochs and layers.
 - Boundary-learning view with boundary Dice, surface Dice, and HD95 timeline.
 - Failure explorer for unstable, forgotten, and persistently wrong cases.
 - More PyTorch examples for common 2D and 3D segmentation loops.
