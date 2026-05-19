@@ -54,7 +54,11 @@ def run_dashboard(run_dir: str | Path) -> None:
         if not epochs:
             st.warning("This case has no epoch artifacts.")
             return
-        epoch = st.select_slider("Epoch", options=epochs, value=epochs[-1])
+        if len(epochs) == 1:
+            epoch = epochs[0]
+            st.write(f"Epoch: `{epoch}`")
+        else:
+            epoch = st.select_slider("Epoch", options=epochs, value=epochs[-1])
 
     timeline_tab, feature_space_tab, boundary_tab = st.tabs(
         ["Case Timeline", "Feature Space", "Boundary Learning"]
@@ -348,7 +352,7 @@ def _render_boundary_learning(st: object, px: object, run_path: Path, current_ca
 
 def _select_slice(st: object, *arrays: np.ndarray) -> tuple[np.ndarray, ...]:
     image = arrays[0]
-    if image.ndim <= 2:
+    if image.ndim <= 2 or _is_rgb_image(image):
         return tuple(np.asarray(array) for array in arrays)
 
     axis = st.sidebar.selectbox("Slice axis", list(range(image.ndim)), index=0)
@@ -368,7 +372,20 @@ def _normalize(image: np.ndarray) -> np.ndarray:
     low, high = np.percentile(finite, [1, 99])
     if high <= low:
         return np.zeros(image.shape, dtype=np.float32)
-    return np.clip((image - low) / (high - low), 0, 1)
+    return np.clip((image - low) / (high - low), 0, 1).astype(np.float32, copy=False)
+
+
+def _rgb_base(image: np.ndarray) -> np.ndarray:
+    image = np.asarray(image)
+    if _is_rgb_image(image):
+        rgb = np.asarray(image[..., :3], dtype=np.float32)
+        return _normalize(rgb)
+    return np.repeat(_normalize(image)[..., None], 3, axis=-1)
+
+
+def _is_rgb_image(image: np.ndarray) -> bool:
+    image = np.asarray(image)
+    return image.ndim == 3 and image.shape[-1] in {3, 4}
 
 
 def _overlay(
@@ -377,7 +394,7 @@ def _overlay(
     color: tuple[int, int, int],
     alpha: float = 0.38,
 ) -> np.ndarray:
-    base = np.repeat(_normalize(image)[..., None], 3, axis=-1)
+    base = _rgb_base(image)
     mask_b = np.asarray(mask) > 0
     overlay_color = np.asarray(color, dtype=np.float32) / 255.0
     base[mask_b] = (1.0 - alpha) * base[mask_b] + alpha * overlay_color
@@ -385,7 +402,7 @@ def _overlay(
 
 
 def _error_overlay(image: np.ndarray, err: np.ndarray, alpha: float = 0.48) -> np.ndarray:
-    base = np.repeat(_normalize(image)[..., None], 3, axis=-1)
+    base = _rgb_base(image)
     err_i = np.asarray(err, dtype=np.int64)
     mask = err_i > 0
     colors = ERROR_COLORS[np.clip(err_i, 0, len(ERROR_COLORS) - 1)]

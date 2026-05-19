@@ -67,6 +67,9 @@ python examples/pytorch_unet_training.py --epochs 3 --run-dir runs/pytorch_unet
 segevo-dashboard --run runs/pytorch_unet --host 0.0.0.0 --port 7860
 ```
 
+如果想把 SegEvo 接入 `milesial/Pytorch-UNet` 做病理 tile 分割，可以参考
+[docs/pathology_unet_milesial.md](docs/pathology_unet_milesial.md)。
+
 SegEvo 相关的接入代码核心只有几步：
 
 ```python

@@ -77,6 +77,9 @@ python examples/pytorch_unet_training.py --epochs 3 --run-dir runs/pytorch_unet
 segevo-dashboard --run runs/pytorch_unet --host 0.0.0.0 --port 7860
 ```
 
+For pathology tile segmentation with `milesial/Pytorch-UNet`, see
+[docs/pathology_unet_milesial.md](docs/pathology_unet_milesial.md).
+
 The SegEvo-specific integration is only these steps:
 
 ```python
