@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/DZW131/SegEvo/actions/workflows/ci.yml/badge.svg)](https://github.com/DZW131/SegEvo/actions/workflows/ci.yml)
 
+**Language:** English | [简体中文](README.zh-CN.md)
+
 中文定位：一个面向医学影像分割的训练动态可视化工具，用于追踪预测 mask、错误区域、中间特征、边界表征、注意力/不确定性在训练过程中的演化。
 
 SegEvo is an open-source research tool for observing how medical image segmentation
