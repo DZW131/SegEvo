@@ -81,7 +81,8 @@ def surface_dice(
     gt_surface = boundary(gt_b)
     pred_to_gt = _surface_distances(pred_surface, gt_surface, spacing)
     gt_to_pred = _surface_distances(gt_surface, pred_surface, spacing)
-    numerator = np.count_nonzero(pred_to_gt <= tolerance) + np.count_nonzero(gt_to_pred <= tolerance)
+    numerator = np.count_nonzero(pred_to_gt <= tolerance)
+    numerator += np.count_nonzero(gt_to_pred <= tolerance)
     denominator = pred_to_gt.size + gt_to_pred.size
     return float(numerator / denominator) if denominator else 1.0
 
@@ -115,4 +116,3 @@ def _surface_distances(
     sampling = spacing if spacing is not None else None
     distance_map = ndimage.distance_transform_edt(np.logical_not(target_surface), sampling=sampling)
     return distance_map[source_surface]
-

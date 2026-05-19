@@ -145,6 +145,18 @@ runs/liver_unet/
 - `2`: false positive
 - `3`: false negative
 
+`features.npz` stores compact layer data. For a logged layer such as `bottleneck`,
+the current schema writes:
+
+- `bottleneck__summary`: mean, standard deviation, minimum, and maximum activation.
+- `bottleneck__samples`: sampled feature vectors with shape `[N, C]`.
+- `bottleneck__sample_region_ids`: integer region labels for each sampled vector.
+- `bottleneck__sample_coords`: feature-map coordinates for each sampled vector.
+- `feature_region_names`: region-id names in order.
+
+The five sampled regions are `foreground`, `boundary`, `hard_background`,
+`false_positive`, and `false_negative`.
+
 ## Current MVP Scope
 
 - Run format with `manifest.json`, `metrics.csv`, and per-case epoch artifacts.
@@ -152,11 +164,13 @@ runs/liver_unet/
 - Dice, volume error, HD95, and surface Dice helpers.
 - Synthetic demo run generator.
 - Streamlit dashboard for case timeline, slice viewer, error overlay, and metric curves.
-- Optional PyTorch forward hooks for compact layer activation summaries.
+- Optional PyTorch forward hooks for compact layer activation summaries and sampled
+  feature vectors.
+- Feature sampling for foreground, boundary, hard background, FP, and FN pixels or
+  voxels.
 
 ## Roadmap
 
-- Feature sampling for foreground, boundary, hard background, FP, and FN voxels.
 - PCA/UMAP feature-space replay across epochs and layers.
 - Boundary-learning view with boundary Dice, surface Dice, and HD95 timeline.
 - Failure explorer for unstable, forgotten, and persistently wrong cases.

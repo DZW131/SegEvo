@@ -16,6 +16,7 @@ from segevo.artifacts import (
     write_manifest,
 )
 from segevo.metrics import error_map, summarize_binary_segmentation
+from segevo.sampling import REGION_NAMES, FeatureSamples, sample_feature_regions
 
 
 class SegEvoLogger:
@@ -27,10 +28,18 @@ class SegEvoLogger:
         manifest: Mapping[str, Any] | None = None,
         spacing: tuple[float, ...] | None = None,
         surface_tolerance: float = 1.0,
+        max_feature_samples_per_region: int = 128,
+        boundary_width: int = 2,
+        hard_background_width: int = 8,
+        random_seed: int = 13,
     ) -> None:
         self.run_dir = Path(run_dir)
         self.spacing = spacing
         self.surface_tolerance = surface_tolerance
+        self.max_feature_samples_per_region = max_feature_samples_per_region
+        self.boundary_width = boundary_width
+        self.hard_background_width = hard_background_width
+        self.random_seed = random_seed
         self._hooks: list[Any] = []
         self._activations: dict[str, np.ndarray] = {}
 
@@ -99,8 +108,11 @@ class SegEvoLogger:
         feature_payload = {
             **self._activation_summaries(),
             **_feature_summaries(features or {}),
+            **self._activation_samples(epoch, case_id, gt_np, pred_np),
+            **self._feature_samples(features or {}, epoch, case_id, gt_np, pred_np),
         }
         if feature_payload:
+            feature_payload["feature_region_names"] = np.asarray(REGION_NAMES)
             np.savez_compressed(epoch_path / "features.npz", **feature_payload)
 
         computed = summarize_binary_segmentation(
@@ -129,6 +141,49 @@ class SegEvoLogger:
             for name, value in self._activations.items()
         }
 
+    def _activation_samples(
+        self,
+        epoch: int,
+        case_id: str,
+        gt: np.ndarray,
+        pred: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        return self._sample_feature_mapping(self._activations, epoch, case_id, gt, pred)
+
+    def _feature_samples(
+        self,
+        features: Mapping[str, Any],
+        epoch: int,
+        case_id: str,
+        gt: np.ndarray,
+        pred: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        return self._sample_feature_mapping(features, epoch, case_id, gt, pred)
+
+    def _sample_feature_mapping(
+        self,
+        features: Mapping[str, Any],
+        epoch: int,
+        case_id: str,
+        gt: np.ndarray,
+        pred: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        payload: dict[str, np.ndarray] = {}
+        for name, value in features.items():
+            samples = sample_feature_regions(
+                feature=to_numpy(value),
+                gt=gt,
+                pred=pred,
+                max_samples_per_region=self.max_feature_samples_per_region,
+                boundary_width=self.boundary_width,
+                hard_background_width=self.hard_background_width,
+                seed=_stable_seed(self.random_seed, epoch, case_id, name),
+            )
+            if samples is None:
+                continue
+            payload.update(_sample_payload(name, samples))
+        return payload
+
 
 def summarize_feature(value: Any) -> np.ndarray:
     array = np.asarray(to_numpy(value), dtype=np.float32)
@@ -152,6 +207,21 @@ def _feature_summaries(features: Mapping[str, Any]) -> dict[str, np.ndarray]:
     }
 
 
+def _sample_payload(name: str, samples: FeatureSamples) -> dict[str, np.ndarray]:
+    return {
+        f"{name}__samples": samples.features,
+        f"{name}__sample_region_ids": samples.region_ids,
+        f"{name}__sample_coords": samples.coords,
+    }
+
+
+def _stable_seed(base_seed: int, epoch: int, case_id: str, layer_name: str) -> int:
+    import hashlib
+
+    digest = hashlib.sha1(f"{base_seed}:{epoch}:{case_id}:{layer_name}".encode()).hexdigest()
+    return int(digest[:8], 16)
+
+
 def _squeeze_channel(array: np.ndarray) -> np.ndarray:
     array = np.asarray(array)
     while array.ndim > 2 and array.shape[0] == 1:
@@ -166,4 +236,3 @@ def _as_mask(array: np.ndarray) -> np.ndarray:
     if np.issubdtype(array.dtype, np.floating):
         return (array >= 0.5).astype(np.uint8)
     return (array > 0).astype(np.uint8)
-

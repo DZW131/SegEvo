@@ -97,6 +97,8 @@ def run_dashboard(run_dir: str | Path) -> None:
         features = np.load(features_path)
         rows = []
         for name in features.files:
+            if not name.endswith("__summary"):
+                continue
             values = np.asarray(features[name]).ravel()
             rows.append(
                 {
@@ -107,7 +109,13 @@ def run_dashboard(run_dir: str | Path) -> None:
                     "max": values[3] if values.size > 3 else np.nan,
                 }
             )
-        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+        sample_rows = _feature_sample_counts(features)
+        if sample_rows:
+            st.subheader("Feature Sample Counts")
+            st.dataframe(pd.DataFrame(sample_rows), use_container_width=True)
 
 
 def _select_slice(st: object, *arrays: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -118,7 +126,10 @@ def _select_slice(st: object, *arrays: np.ndarray) -> tuple[np.ndarray, ...]:
     axis = st.sidebar.selectbox("Slice axis", list(range(image.ndim)), index=0)
     max_index = image.shape[axis] - 1
     index = st.sidebar.slider("Slice", min_value=0, max_value=max_index, value=max_index // 2)
-    return tuple(np.take(array, index, axis=axis) if array.ndim == image.ndim else array for array in arrays)
+    return tuple(
+        np.take(array, index, axis=axis) if array.ndim == image.ndim else array
+        for array in arrays
+    )
 
 
 def _normalize(image: np.ndarray) -> np.ndarray:
@@ -132,7 +143,12 @@ def _normalize(image: np.ndarray) -> np.ndarray:
     return np.clip((image - low) / (high - low), 0, 1)
 
 
-def _overlay(image: np.ndarray, mask: np.ndarray, color: tuple[int, int, int], alpha: float = 0.38) -> np.ndarray:
+def _overlay(
+    image: np.ndarray,
+    mask: np.ndarray,
+    color: tuple[int, int, int],
+    alpha: float = 0.38,
+) -> np.ndarray:
     base = np.repeat(_normalize(image)[..., None], 3, axis=-1)
     mask_b = np.asarray(mask) > 0
     overlay_color = np.asarray(color, dtype=np.float32) / 255.0
@@ -148,3 +164,22 @@ def _error_overlay(image: np.ndarray, err: np.ndarray, alpha: float = 0.48) -> n
     base[mask] = (1.0 - alpha) * base[mask] + alpha * colors[mask]
     return base
 
+
+def _feature_sample_counts(features: np.lib.npyio.NpzFile) -> list[dict[str, object]]:
+    if "feature_region_names" in features.files:
+        region_names = [str(name) for name in features["feature_region_names"].tolist()]
+    else:
+        region_names = []
+    rows: list[dict[str, object]] = []
+    for name in features.files:
+        if not name.endswith("__sample_region_ids"):
+            continue
+        layer = name.replace("__sample_region_ids", "")
+        region_ids = np.asarray(features[name], dtype=np.int64)
+        for region_id, count in zip(*np.unique(region_ids, return_counts=True)):
+            if region_id < len(region_names):
+                region_name = region_names[region_id]
+            else:
+                region_name = str(region_id)
+            rows.append({"layer": layer, "region": region_name, "samples": int(count)})
+    return rows
