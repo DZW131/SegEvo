@@ -26,12 +26,13 @@ class FeatureProjection:
     layer: str
     x: np.ndarray
     y: np.ndarray
+    z: np.ndarray
     region_ids: np.ndarray
     region_names: tuple[str, ...]
     case_ids: np.ndarray
     epochs: np.ndarray
     feature_coords: np.ndarray
-    explained_variance_ratio: tuple[float, float]
+    explained_variance_ratio: tuple[float, ...]
 
 
 def available_feature_layers(run_dir: str | Path) -> list[str]:
@@ -123,11 +124,12 @@ def load_feature_space(
 
 
 def project_feature_space(feature_space: FeatureSpace) -> FeatureProjection:
-    x, y, explained = pca_2d(feature_space.features)
+    x, y, z, explained = pca_3d(feature_space.features)
     return FeatureProjection(
         layer=feature_space.layer,
         x=x,
         y=y,
+        z=z,
         region_ids=feature_space.region_ids,
         region_names=feature_space.region_names,
         case_ids=feature_space.case_ids,
@@ -158,36 +160,43 @@ def downsample_feature_space(
 
 
 def pca_2d(features: np.ndarray) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
+    coords, ratios = pca_nd(features, n_components=2)
+    return coords[:, 0], coords[:, 1], (ratios[0], ratios[1])
+
+
+def pca_3d(features: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float, float]]:
+    coords, ratios = pca_nd(features, n_components=3)
+    return coords[:, 0], coords[:, 1], coords[:, 2], (ratios[0], ratios[1], ratios[2])
+
+
+def pca_nd(features: np.ndarray, n_components: int) -> tuple[np.ndarray, tuple[float, ...]]:
+    if n_components < 1:
+        raise ValueError(f"n_components must be at least 1, got {n_components}")
     if features.size == 0:
-        empty = np.zeros((0,), dtype=np.float32)
-        return empty, empty, (0.0, 0.0)
+        return np.zeros((0, n_components), dtype=np.float32), tuple(0.0 for _ in range(n_components))
 
     x = np.asarray(features, dtype=np.float32)
     x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
     if x.ndim != 2:
         raise ValueError(f"features must be 2D, got shape {x.shape}")
     if x.shape[0] == 1:
-        zeros = np.zeros((1,), dtype=np.float32)
-        return zeros, zeros, (0.0, 0.0)
+        return np.zeros((1, n_components), dtype=np.float32), tuple(
+            0.0 for _ in range(n_components)
+        )
 
     centered = x - x.mean(axis=0, keepdims=True)
-    if centered.shape[1] == 1:
-        projected_x = centered[:, 0].astype(np.float32)
-        projected_y = np.zeros_like(projected_x)
-        return projected_x, projected_y, (1.0, 0.0)
-
     _u, singular_values, vt = np.linalg.svd(centered, full_matrices=False)
-    components = vt[:2]
-    coords = centered @ components.T
-    if coords.shape[1] == 1:
-        coords = np.column_stack([coords[:, 0], np.zeros(coords.shape[0], dtype=np.float32)])
+    usable_components = min(n_components, vt.shape[0])
+    coords = np.zeros((centered.shape[0], n_components), dtype=np.float32)
+    if usable_components > 0:
+        components = vt[:usable_components]
+        coords[:, :usable_components] = (centered @ components.T).astype(np.float32)
 
     explained = singular_values**2
     total = float(explained.sum())
     ratios = explained / total if total > 0 else np.zeros_like(explained)
-    ratio_1 = float(ratios[0]) if ratios.size > 0 else 0.0
-    ratio_2 = float(ratios[1]) if ratios.size > 1 else 0.0
-    return coords[:, 0].astype(np.float32), coords[:, 1].astype(np.float32), (ratio_1, ratio_2)
+    padded_ratios = [float(ratios[index]) if index < ratios.size else 0.0 for index in range(n_components)]
+    return coords, tuple(padded_ratios)
 
 
 def _features_path(run_dir: Path, case_id: str, epoch: int) -> Path:

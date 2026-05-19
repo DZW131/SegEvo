@@ -190,14 +190,16 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
     projection = project_feature_space(space)
     df = _projection_dataframe(projection)
     title = (
-        f"{layer} PCA "
+        f"{layer} 3D PCA "
         f"(PC1 {projection.explained_variance_ratio[0]:.1%}, "
-        f"PC2 {projection.explained_variance_ratio[1]:.1%})"
+        f"PC2 {projection.explained_variance_ratio[1]:.1%}, "
+        f"PC3 {projection.explained_variance_ratio[2]:.1%})"
     )
-    fig = px.scatter(
+    fig = px.scatter_3d(
         df,
         x="pc1",
         y="pc2",
+        z="pc3",
         color="region",
         symbol="epoch_label",
         hover_data=["case_id", "epoch", "coord"],
@@ -205,6 +207,16 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
         opacity=0.72,
     )
     fig.update_traces(marker={"size": 6})
+    fig.update_layout(
+        height=720,
+        scene={
+            "xaxis_title": "PC1",
+            "yaxis_title": "PC2",
+            "zaxis_title": "PC3",
+            "aspectmode": "cube",
+        },
+        legend_title_text="region, epoch",
+    )
     with plot_area:
         _plotly_chart(st, fig)
         summary = (
@@ -432,6 +444,7 @@ def _projection_dataframe(projection: object) -> pd.DataFrame:
         {
             "pc1": projection.x,
             "pc2": projection.y,
+            "pc3": projection.z,
             "region": region_labels,
             "case_id": projection.case_ids,
             "epoch": projection.epochs,

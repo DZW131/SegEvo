@@ -4,6 +4,7 @@ from segevo.feature_space import (
     available_feature_layers,
     load_feature_space,
     pca_2d,
+    pca_3d,
     project_feature_space,
 )
 from segevo.logger import SegEvoLogger
@@ -23,6 +24,22 @@ def test_pca_2d_projects_with_stable_shape():
     assert x.shape == (4,)
     assert y.shape == (4,)
     assert ratios[0] > 0.99
+
+
+def test_pca_3d_projects_with_stable_shape():
+    features = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 1.0, 0.0],
+            [3.0, 1.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+    x, y, z, ratios = pca_3d(features)
+    assert x.shape == y.shape == z.shape == (4,)
+    assert len(ratios) == 3
+    assert ratios[0] > 0.7
 
 
 def test_load_and_project_feature_space_from_run(tmp_path):
@@ -45,6 +62,5 @@ def test_load_and_project_feature_space_from_run(tmp_path):
     assert set(space.epochs.tolist()) == {0, 1}
 
     projection = project_feature_space(space)
-    assert projection.x.shape == projection.y.shape == space.region_ids.shape
+    assert projection.x.shape == projection.y.shape == projection.z.shape == space.region_ids.shape
     assert projection.layer == "manual_layer"
-
