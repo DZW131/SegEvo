@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "segevo"
+version = "0.1.0"
+description = "Training-process observability for medical image segmentation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "DZW131" }
+]
+keywords = [
+  "medical-imaging",
+  "segmentation",
+  "visualization",
+  "pytorch",
+  "streamlit",
+  "research-tools"
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
+  "Topic :: Scientific/Engineering :: Visualization"
+]
+dependencies = [
+  "numpy>=1.23",
+  "scipy>=1.9"
+]
+
+[project.optional-dependencies]
+dashboard = [
+  "pandas>=1.5",
+  "plotly>=5.18",
+  "streamlit>=1.31"
+]
+torch = [
+  "torch>=2.0"
+]
+dev = [
+  "pytest>=7.4",
+  "ruff>=0.4"
+]
+
+[project.scripts]
+segevo-dashboard = "segevo.cli:dashboard_main"
+segevo-demo = "segevo.cli:demo_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
