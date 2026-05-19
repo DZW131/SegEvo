@@ -41,6 +41,9 @@ dependencies = [
 dashboard = [
   "pandas>=1.5",
   "plotly>=5.18",
+  # Keep dashboard installs friendly to older Linux research servers where
+  # newer pyarrow wheels may require a newer glibc and fall back to source builds.
+  "pyarrow>=10,<21",
   "streamlit>=1.31"
 ]
 torch = [

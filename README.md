@@ -44,6 +44,18 @@ ssh -L 7860:localhost:7860 user@server
 
 Then open `http://localhost:7860`.
 
+If you are installing on an older Linux research server, upgrade packaging tools
+first so pip can use prebuilt wheels:
+
+```bash
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[dashboard]"
+```
+
+SegEvo pins the dashboard `pyarrow` dependency below `21` because newer wheels can
+fall back to source builds on older glibc systems, which may fail with Rust/C++
+compiler errors.
+
 The dashboard currently has three main tabs:
 
 - `Case Timeline`: image, GT, prediction, FP/FN error map, metrics, and feature

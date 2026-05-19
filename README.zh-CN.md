@@ -42,6 +42,15 @@ ssh -L 7860:localhost:7860 user@server
 http://localhost:7860
 ```
 
+如果是在比较老的 Linux 科研服务器上安装，建议先升级 pip 相关工具，确保能优先使用预编译 wheel：
+
+```bash
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[dashboard]"
+```
+
+SegEvo 已经把 dashboard 依赖里的 `pyarrow` 固定在 `<21`，这样可以避开部分老 glibc 服务器上新版 `pyarrow` 找不到兼容 wheel、转而源码编译并报 Rust/C++ 编译错误的问题。
+
 当前 dashboard 包含三个主要页面：
 
 - `Case Timeline`：查看指定病例和 epoch 的原图、GT、prediction、FP/FN error map、指标曲线和 feature sample 计数。
@@ -219,4 +228,3 @@ python examples/pytorch_unet_training.py --epochs 3 --run-dir runs/pytorch_unet
 - 更多真实 PyTorch 2D / 3D 医学分割示例。
 - 更完善的 uncertainty、attention / Grad-CAM artifact 约定。
 - 文档截图、GIF、真实实验案例和 release tag。
-
