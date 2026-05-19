@@ -34,7 +34,7 @@ def generate_demo_run(out: str | Path, epochs: int = 8, cases: int = 3) -> Path:
                 gt=gt,
                 pred=pred,
                 features={
-                    "bottleneck": _fake_feature_summary(gt, pred, epoch),
+                    "bottleneck": _fake_feature_map(image, gt, pred, epoch, epochs),
                 },
             )
     return out_path
@@ -98,9 +98,42 @@ def _shift(mask: np.ndarray, dy: int, dx: int) -> np.ndarray:
     return shifted
 
 
-def _fake_feature_summary(gt: np.ndarray, pred: np.ndarray, epoch: int) -> np.ndarray:
-    overlap = np.logical_and(gt > 0, pred > 0).mean()
-    fp = np.logical_and(gt == 0, pred > 0).mean()
-    fn = np.logical_and(gt > 0, pred == 0).mean()
-    return np.asarray([overlap, fp, fn, epoch], dtype=np.float32)
+def _fake_feature_map(
+    image: np.ndarray,
+    gt: np.ndarray,
+    pred: np.ndarray,
+    epoch: int,
+    total_epochs: int,
+) -> np.ndarray:
+    from scipy import ndimage
 
+    progress = epoch / max(total_epochs - 1, 1)
+    gt_b = gt > 0
+    pred_b = pred > 0
+    structure = ndimage.generate_binary_structure(gt.ndim, 1)
+    gt_boundary = gt_b ^ ndimage.binary_erosion(gt_b, structure=structure, border_value=0)
+    boundary_band = ndimage.binary_dilation(gt_boundary, structure=structure, iterations=2)
+    near_foreground = ndimage.binary_dilation(gt_b, structure=structure, iterations=8)
+    false_positive = pred_b & ~gt_b
+    false_negative = gt_b & ~pred_b
+    hard_background = near_foreground & ~gt_b & ~false_positive
+
+    yy, xx = np.mgrid[: gt.shape[0], : gt.shape[1]]
+    xx = xx.astype(np.float32) / max(gt.shape[1] - 1, 1)
+    yy = yy.astype(np.float32) / max(gt.shape[0] - 1, 1)
+    image_norm = (image - float(np.min(image))) / max(float(np.ptp(image)), 1e-6)
+
+    return np.stack(
+        [
+            image_norm,
+            gt_b.astype(np.float32) * (0.65 + 0.35 * progress),
+            pred_b.astype(np.float32) * (0.35 + 0.65 * progress),
+            boundary_band.astype(np.float32) * (0.45 + 0.55 * progress),
+            hard_background.astype(np.float32) * (1.0 - 0.25 * progress),
+            false_positive.astype(np.float32) * (1.0 - progress)
+            - false_negative.astype(np.float32) * (1.0 - progress),
+            xx,
+            yy,
+        ],
+        axis=0,
+    ).astype(np.float32)

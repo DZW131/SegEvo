@@ -117,7 +117,7 @@ def _render_case_timeline(
                 value_name="value",
             )
             fig = px.line(long_df, x="epoch", y="value", color="metric", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
+            _plotly_chart(st, fig)
 
     features_path = epoch_path / "features.npz"
     if features_path.exists():
@@ -138,12 +138,12 @@ def _render_case_timeline(
                     }
                 )
             if rows:
-                st.dataframe(pd.DataFrame(rows), use_container_width=True)
+                _dataframe(st, pd.DataFrame(rows))
 
             sample_rows = _feature_sample_counts(features)
             if sample_rows:
                 st.subheader("Feature Sample Counts")
-                st.dataframe(pd.DataFrame(sample_rows), use_container_width=True)
+                _dataframe(st, pd.DataFrame(sample_rows))
 
 
 def _render_feature_space(st: object, px: object, run_path: Path, current_case_id: str) -> None:
@@ -206,14 +206,14 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
     )
     fig.update_traces(marker={"size": 6})
     with plot_area:
-        st.plotly_chart(fig, use_container_width=True)
+        _plotly_chart(st, fig)
         summary = (
             df.groupby(["epoch", "region"])
             .size()
             .reset_index(name="samples")
             .sort_values(["epoch", "region"])
         )
-        st.dataframe(summary, use_container_width=True)
+        _dataframe(st, summary)
 
 
 def _render_boundary_learning(st: object, px: object, run_path: Path, current_case_id: str) -> None:
@@ -307,7 +307,7 @@ def _render_boundary_learning(st: object, px: object, run_path: Path, current_ca
                 value_name="value",
             )
             fig = px.line(metric_long, x="epoch", y="value", color="metric", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
+            _plotly_chart(st, fig)
 
         st.subheader("Boundary Feature Separation")
         separation_choices = [
@@ -327,11 +327,11 @@ def _render_boundary_learning(st: object, px: object, run_path: Path, current_ca
                 value_name="value",
             ).dropna(subset=["value"])
             fig = px.line(separation_long, x="epoch", y="value", color="metric", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
+            _plotly_chart(st, fig)
         else:
             st.info("This selection does not contain enough boundary/hard-background samples.")
 
-        st.dataframe(df, use_container_width=True)
+        _dataframe(st, df)
 
 
 def _select_slice(st: object, *arrays: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -399,6 +399,20 @@ def _feature_sample_counts(features: np.lib.npyio.NpzFile) -> list[dict[str, obj
                 region_name = str(region_id)
             rows.append({"layer": layer, "region": region_name, "samples": int(count)})
     return rows
+
+
+def _plotly_chart(st: object, fig: object) -> None:
+    try:
+        st.plotly_chart(fig, width="stretch")
+    except TypeError:
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def _dataframe(st: object, df: pd.DataFrame) -> None:
+    try:
+        st.dataframe(df, width="stretch")
+    except TypeError:
+        st.dataframe(df, use_container_width=True)
 
 
 def _projection_dataframe(projection: object) -> pd.DataFrame:
