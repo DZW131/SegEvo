@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-torch = pytest.importorskip("torch")
+pytest.importorskip("torch")
 
 
 def load_example_module():

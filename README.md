@@ -1,5 +1,7 @@
 # SegEvo
 
+[![CI](https://github.com/DZW131/SegEvo/actions/workflows/ci.yml/badge.svg)](https://github.com/DZW131/SegEvo/actions/workflows/ci.yml)
+
 中文定位：一个面向医学影像分割的训练动态可视化工具，用于追踪预测 mask、错误区域、中间特征、边界表征、注意力/不确定性在训练过程中的演化。
 
 SegEvo is an open-source research tool for observing how medical image segmentation
@@ -40,7 +42,7 @@ ssh -L 7860:localhost:7860 user@server
 
 Then open `http://localhost:7860`.
 
-The dashboard currently has two main tabs:
+The dashboard currently has three main tabs:
 
 - `Case Timeline`: image, GT, prediction, FP/FN error map, metrics, and feature
   sample counts for the selected case and epoch.
@@ -196,6 +198,9 @@ pip install -e ".[dashboard,dev]"
 pytest
 ruff check .
 ```
+
+GitHub Actions runs linting, unit tests, and a tiny PyTorch U-Net smoke test on
+every push and pull request.
 
 If you are working on a server without browser access, generate a demo run and start
 the dashboard on `0.0.0.0`, then use SSH port forwarding as shown above.

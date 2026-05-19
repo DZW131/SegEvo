@@ -19,12 +19,12 @@ def dice_score(pred: np.ndarray, gt: np.ndarray, eps: float = 1e-8) -> float:
     return float((2.0 * np.logical_and(pred_b, gt_b).sum() + eps) / (denom + eps))
 
 
-def volume_error(pred: np.ndarray, gt: np.ndarray, eps: float = 1e-8) -> float:
+def volume_error(pred: np.ndarray, gt: np.ndarray) -> float:
     pred_count = float(binarize(pred).sum())
     gt_count = float(binarize(gt).sum())
     if gt_count == 0:
         return 0.0 if pred_count == 0 else float("inf")
-    return float((pred_count - gt_count) / (gt_count + eps))
+    return float((pred_count - gt_count) / gt_count)
 
 
 def error_map(pred: np.ndarray, gt: np.ndarray) -> np.ndarray:

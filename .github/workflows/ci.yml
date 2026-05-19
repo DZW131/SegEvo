@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    name: Lint and test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package and dev tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Compile
+        run: python -m compileall -q src tests examples
+
+      - name: Test
+        run: python -m pytest -q
+
+  pytorch-smoke:
+    name: PyTorch example smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package with PyTorch
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,torch]"
+
+      - name: Run tiny U-Net example
+        run: |
+          python examples/pytorch_unet_training.py \
+            --epochs 1 \
+            --train-cases 4 \
+            --probe-cases 1 \
+            --image-size 32 \
+            --batch-size 2 \
+            --run-dir runs/ci_pytorch
+
+      - name: Validate SegEvo artifacts
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          import numpy as np
+          from segevo import available_feature_layers, boundary_learning_records
+
+          run_dir = Path("runs/ci_pytorch")
+          assert (run_dir / "manifest.json").exists()
+          assert (run_dir / "metrics.csv").exists()
+          with (run_dir / "metrics.csv").open(newline="", encoding="utf-8") as handle:
+              rows = list(csv.DictReader(handle))
+          assert rows
+          assert "boundary_dice" in rows[0]
+
+          layers = available_feature_layers(run_dir)
+          assert {"enc2", "bottleneck", "dec1"}.issubset(set(layers))
+
+          feature_path = run_dir / "cases" / "synthetic_000" / "epochs" / "0000" / "features.npz"
+          with np.load(feature_path) as payload:
+              assert "bottleneck__samples" in payload.files
+              assert "bottleneck__sample_region_ids" in payload.files
+
+          records = boundary_learning_records(run_dir, layers=["bottleneck"])
+          assert records
+          PY
+
