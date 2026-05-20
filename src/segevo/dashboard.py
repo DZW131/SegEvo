@@ -43,6 +43,76 @@ SEPARATION_LABELS = {
     "boundary_hard_margin": "boundary hard margin",
 }
 
+PAGE_GUIDES = {
+    "case_timeline": """
+**English**
+
+- Use `Case` and `Epoch` in the sidebar to replay one fixed probe case through training.
+- `Image + GT` overlays the ground-truth mask in green; `Image + Prediction` overlays the
+  model prediction in blue.
+- `Error Map` uses green for true positives, orange for false positives, and red for false
+  negatives.
+- Metric curves show whether this case is improving. Dice and surface Dice are better when
+  higher; HD95 is better when lower; volume error is better when closer to zero.
+- Feature summaries and sample counts confirm which network layers were logged at this epoch.
+
+**中文**
+
+- 在左侧用 `Case` 和 `Epoch` 回放同一个固定 probe 病例在训练过程中的变化。
+- `Image + GT` 用绿色叠加真实标注；`Image + Prediction` 用蓝色叠加模型预测。
+- `Error Map` 中绿色是真阳性，橙色是假阳性，红色是假阴性。
+- 指标曲线用于判断这个病例是否在变好：Dice 和 surface Dice 越高越好，HD95 越低越好，
+  volume error 越接近 0 越好。
+- Feature summaries 和 sample counts 用来确认当前 epoch 记录了哪些网络层特征。
+""",
+    "feature_space": """
+**English**
+
+- This page projects sampled high-dimensional layer features into a stable 3D PCA space.
+  The PC axes are relative coordinates, so focus on clustering, distance, and trajectories.
+- `Layer` chooses the hooked network layer. Deeper layers usually carry more semantic
+  information; shallower layers often reflect texture and color.
+- `Epoch` shows points from the selected epoch, while centroid trajectories show how each
+  region has moved up to that epoch.
+- `Regions` filters foreground, boundary, hard background, false positive, and false
+  negative samples.
+- `Separation` summarizes distances between region centroids. Larger boundary-to-hard
+  background distance often means the model separates boundary from confusing background
+  more clearly.
+
+**中文**
+
+- 本页把采样到的高维中间层特征投影到稳定的 3D PCA 空间。PC 轴是相对坐标，
+  重点看点群是否分开、距离是否变大、中心轨迹如何移动。
+- `Layer` 选择被 hook 的网络层。深层通常更偏语义，浅层通常更偏颜色、纹理和边缘。
+- `Epoch` 显示当前 epoch 的点云，中心轨迹显示各区域从早期到当前 epoch 的移动过程。
+- `Regions` 用来筛选 foreground、boundary、hard background、false positive、
+  false negative。
+- `Separation` 是区域中心距离的定量摘要。boundary 到 hard background 距离越大，
+  通常说明模型越能把边界和易混背景区分开。
+""",
+    "boundary_learning": """
+**English**
+
+- This page focuses on boundary learning rather than whole-mask overlap.
+- `Boundary width` controls how thick the boundary band is when computing boundary Dice.
+- `Surface tolerance` controls the accepted distance for surface Dice.
+- Boundary Dice and surface Dice are better when higher; HD95 is better when lower.
+- Boundary feature separation compares boundary features with foreground and hard
+  background features. A rising separation trend usually means boundary representations
+  are becoming more stable.
+
+**中文**
+
+- 本页专门看边界学习，而不只是整体 mask 重叠程度。
+- `Boundary width` 控制计算 boundary Dice 时边界带的宽度。
+- `Surface tolerance` 控制 surface Dice 允许的边界距离误差。
+- boundary Dice 和 surface Dice 越高越好；HD95 越低越好。
+- Boundary feature separation 比较边界特征与 foreground / hard background 特征。
+  如果分离趋势上升，通常说明模型对边界的表征更稳定了。
+""",
+}
+
 
 def run_dashboard(run_dir: str | Path) -> None:
     import plotly.express as px
@@ -99,6 +169,8 @@ def _render_case_timeline(
     epoch: int,
     metrics: pd.DataFrame,
 ) -> None:
+    _render_page_guide(st, "case_timeline")
+
     case_path = run_path / "cases" / case_id
     epoch_path = case_path / "epochs" / f"{epoch:04d}"
     image = load_array(case_path / "image.npy")
@@ -169,6 +241,8 @@ def _render_case_timeline(
 
 def _render_feature_space(st: object, px: object, run_path: Path, current_case_id: str) -> None:
     import plotly.graph_objects as go
+
+    _render_page_guide(st, "feature_space")
 
     layers = available_feature_layers(run_path)
     if not layers:
@@ -302,6 +376,8 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
 
 
 def _render_boundary_learning(st: object, px: object, run_path: Path, current_case_id: str) -> None:
+    _render_page_guide(st, "boundary_learning")
+
     layers = available_feature_layers(run_path)
     controls, plot_area = st.columns([1, 3])
     with controls:
@@ -477,6 +553,14 @@ def _error_overlay(image: np.ndarray, err: np.ndarray, alpha: float = 0.48) -> n
     colors = ERROR_COLORS[np.clip(err_i, 0, len(ERROR_COLORS) - 1)]
     base[mask] = (1.0 - alpha) * base[mask] + alpha * colors[mask]
     return base
+
+
+def _render_page_guide(st: object, page: str) -> None:
+    guide = PAGE_GUIDES.get(page)
+    if not guide:
+        return
+    with st.expander("How to read this page / 如何阅读本页", expanded=False):
+        st.markdown(guide.strip())
 
 
 def _ordered_regions(regions: object) -> list[str]:
