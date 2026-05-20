@@ -16,13 +16,6 @@ models, WSI tile segmentation models, or custom CNN/Transformer segmentation mod
 as long as your training loop can provide image, ground truth, prediction, and
 optionally intermediate features.
 
-## Demo Video
-
-[Watch the SegEvo dashboard demo](docs/assets/segevo-dashboard-demo.mp4)
-
-The recording walks through the three main dashboard pages: case-level training
-timeline, 3D feature-space evolution, and boundary learning diagnostics.
-
 ## Why SegEvo
 
 Final Dice or HD95 tells you what happened at the end of training. It often does not
