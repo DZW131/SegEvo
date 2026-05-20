@@ -147,7 +147,12 @@ def downsample_feature_space(
     if feature_space.features.shape[0] <= max_points:
         return feature_space
     rng = np.random.default_rng(seed)
-    keep = np.sort(rng.choice(feature_space.features.shape[0], size=max_points, replace=False))
+    keep = _stratified_indices(
+        epochs=feature_space.epochs,
+        region_ids=feature_space.region_ids,
+        max_points=max_points,
+        rng=rng,
+    )
     return FeatureSpace(
         layer=feature_space.layer,
         features=feature_space.features[keep],
@@ -157,6 +162,49 @@ def downsample_feature_space(
         epochs=feature_space.epochs[keep],
         coords=feature_space.coords[keep],
     )
+
+
+def _stratified_indices(
+    epochs: np.ndarray,
+    region_ids: np.ndarray,
+    max_points: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    keys = np.column_stack([np.asarray(epochs), np.asarray(region_ids)])
+    groups: list[np.ndarray] = []
+    for key in np.unique(keys, axis=0):
+        group = np.flatnonzero(np.all(keys == key, axis=1))
+        if group.size > 0:
+            groups.append(group)
+
+    if not groups:
+        return np.zeros((0,), dtype=np.int64)
+
+    base_quota = max(1, max_points // len(groups))
+    selected: list[np.ndarray] = []
+    leftovers: list[np.ndarray] = []
+    remaining = max_points
+
+    for group in groups:
+        if group.size <= base_quota:
+            selected.append(group)
+            remaining -= group.size
+        else:
+            take = rng.choice(group, size=base_quota, replace=False)
+            selected.append(take)
+            leftovers.append(np.setdiff1d(group, take, assume_unique=False))
+            remaining -= base_quota
+
+    if remaining > 0 and leftovers:
+        pool = np.concatenate([leftover for leftover in leftovers if leftover.size > 0])
+        if pool.size > 0:
+            extra = rng.choice(pool, size=min(remaining, pool.size), replace=False)
+            selected.append(extra)
+
+    keep = np.concatenate(selected)
+    if keep.size > max_points:
+        keep = rng.choice(keep, size=max_points, replace=False)
+    return np.sort(keep.astype(np.int64, copy=False))
 
 
 def pca_2d(features: np.ndarray) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:

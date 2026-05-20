@@ -54,7 +54,7 @@ SegEvo 已经把 dashboard 依赖里的 `pyarrow` 固定在 `<21`，这样可以
 当前 dashboard 包含三个主要页面：
 
 - `Case Timeline`：查看指定病例和 epoch 的原图、GT、prediction、FP/FN error map、指标曲线和 feature sample 计数。
-- `Feature Space`：对采样到的中间层特征做稳定 3D PCA 投影，按 foreground、boundary、hard background、FP、FN 上色。
+- `Feature Space`：对采样到的中间层特征做稳定 3D PCA 投影，支持 epoch 滑块、区域过滤、中心轨迹和 foreground / boundary / hard background / FP / FN 分离指标。
 - `Boundary Learning`：查看 boundary Dice、surface Dice、HD95，以及边界特征与 foreground / hard background 的分离趋势。
 
 ## PyTorch U-Net 示例
@@ -199,7 +199,7 @@ runs/liver_unet/
 - PyTorch forward hook，用于记录指定层的激活摘要和采样特征。
 - 五类区域 feature sampling：foreground、boundary、hard background、FP、FN。
 - `Case Timeline` 页面：查看病例随 epoch 的预测和错误演化。
-- `Feature Space` 页面：跨 case / epoch 的稳定 3D PCA 特征空间投影。
+- `Feature Space` 页面：稳定 3D PCA 特征空间投影、epoch 滑块、区域过滤、中心轨迹和分离指标。
 - `Boundary Learning` 页面：边界指标和边界特征分离趋势。
 - GitHub Actions CI：自动运行 lint、unit tests 和 PyTorch smoke test。
 

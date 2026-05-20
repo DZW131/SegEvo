@@ -26,6 +26,23 @@ ERROR_COLORS = np.asarray(
     dtype=np.float32,
 ) / 255.0
 
+REGION_COLORS = {
+    "foreground": "#0074D9",
+    "boundary": "#7FDBFF",
+    "hard_background": "#FF4136",
+    "false_positive": "#FF851B",
+    "false_negative": "#2ECC40",
+}
+
+SEPARATION_LABELS = {
+    "boundary_within": "boundary spread",
+    "boundary_to_foreground": "boundary -> foreground",
+    "boundary_to_hard_background": "boundary -> hard bg",
+    "fp_to_foreground": "FP -> foreground",
+    "fn_to_foreground": "FN -> foreground",
+    "boundary_hard_margin": "boundary hard margin",
+}
+
 
 def run_dashboard(run_dir: str | Path) -> None:
     import plotly.express as px
@@ -151,12 +168,14 @@ def _render_case_timeline(
 
 
 def _render_feature_space(st: object, px: object, run_path: Path, current_case_id: str) -> None:
+    import plotly.graph_objects as go
+
     layers = available_feature_layers(run_path)
     if not layers:
         st.info("No feature samples found. Run a logger with attached layers first.")
         return
 
-    controls, plot_area = st.columns([1, 3])
+    controls, plot_area, metrics_area = st.columns([1.1, 3.2, 1.15])
     with controls:
         layer = st.selectbox("Layer", layers)
         case_scope = st.radio("Cases", ["Current case", "All cases"], horizontal=False)
@@ -172,19 +191,29 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
                 for epoch in list_epochs(run_path, selected_case)
             }
         )
-        default_epochs = available_epochs[-min(6, len(available_epochs)) :]
-        selected_epochs = st.multiselect("Epochs", available_epochs, default=default_epochs)
+        if not available_epochs:
+            st.info("No epochs found for this case selection.")
+            return
+        if len(available_epochs) == 1:
+            focus_epoch = available_epochs[0]
+            st.write(f"Epoch: `{focus_epoch}`")
+        else:
+            focus_epoch = st.select_slider(
+                "Epoch",
+                options=available_epochs,
+                value=available_epochs[-1],
+            )
+        display_mode = st.selectbox(
+            "Display",
+            ["Points + centroid trajectories", "Points only", "Centroids only"],
+        )
         max_points = st.slider("Max points", min_value=500, max_value=10000, value=4000, step=500)
-
-    if not selected_epochs:
-        st.info("Select at least one epoch.")
-        return
 
     space = load_feature_space(
         run_path,
         layer=layer,
         cases=selected_cases,
-        epochs=selected_epochs,
+        epochs=available_epochs,
         max_points=max_points,
     )
     if space.features.size == 0:
@@ -193,24 +222,53 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
 
     projection = project_feature_space(space)
     df = _projection_dataframe(projection)
+    all_regions = _ordered_regions(df["region"].dropna().unique())
+
+    with controls:
+        selected_regions = st.multiselect("Regions", all_regions, default=all_regions)
+
+    if not selected_regions:
+        st.info("Select at least one region.")
+        return
+
+    history_df = df[(df["epoch"] <= focus_epoch) & df["region"].isin(selected_regions)].copy()
+    points_df = history_df[history_df["epoch"] == focus_epoch].copy()
+    centroid_df = _centroid_dataframe(history_df)
+
+    if history_df.empty:
+        st.info("No sampled features found for this epoch/region selection.")
+        return
+
     title = (
         f"{layer} 3D PCA "
         f"(PC1 {projection.explained_variance_ratio[0]:.1%}, "
         f"PC2 {projection.explained_variance_ratio[1]:.1%}, "
         f"PC3 {projection.explained_variance_ratio[2]:.1%})"
     )
-    fig = px.scatter_3d(
-        df,
-        x="pc1",
-        y="pc2",
-        z="pc3",
-        color="region",
-        symbol="epoch_label",
-        hover_data=["case_id", "epoch", "coord"],
-        title=title,
-        opacity=0.72,
-    )
-    fig.update_traces(marker={"size": 6})
+    show_points = display_mode in {"Points + centroid trajectories", "Points only"}
+    show_centroids = display_mode in {"Points + centroid trajectories", "Centroids only"}
+
+    if show_points and not points_df.empty:
+        fig = px.scatter_3d(
+            points_df,
+            x="pc1",
+            y="pc2",
+            z="pc3",
+            color="region",
+            color_discrete_map=REGION_COLORS,
+            category_orders={"region": all_regions},
+            hover_data=["case_id", "epoch", "coord"],
+            title=title,
+            opacity=0.7,
+        )
+        fig.update_traces(marker={"size": 5})
+    else:
+        fig = go.Figure()
+        fig.update_layout(title=title)
+
+    if show_centroids:
+        _add_centroid_traces(fig, go, centroid_df, selected_regions, show_legend=not show_points)
+
     fig.update_layout(
         height=720,
         scene={
@@ -219,17 +277,28 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
             "zaxis_title": "PC3",
             "aspectmode": "cube",
         },
-        legend_title_text="region, epoch",
+        legend_title_text="region",
     )
     with plot_area:
         _plotly_chart(st, fig)
         summary = (
-            df.groupby(["epoch", "region"])
+            history_df.groupby(["epoch", "region"])
             .size()
             .reset_index(name="samples")
             .sort_values(["epoch", "region"])
         )
         _dataframe(st, summary)
+
+    with metrics_area:
+        st.subheader("Separation")
+        metrics = _feature_separation_metrics(history_df, focus_epoch)
+        if metrics.empty:
+            st.info("Need boundary/foreground/background samples.")
+        else:
+            for row in metrics.to_dict("records"):
+                metric_name = str(row["metric"])
+                st.metric(SEPARATION_LABELS.get(metric_name, metric_name), f"{float(row['value']):.3f}")
+            _dataframe(st, metrics)
 
 
 def _render_boundary_learning(st: object, px: object, run_path: Path, current_case_id: str) -> None:
@@ -408,6 +477,105 @@ def _error_overlay(image: np.ndarray, err: np.ndarray, alpha: float = 0.48) -> n
     colors = ERROR_COLORS[np.clip(err_i, 0, len(ERROR_COLORS) - 1)]
     base[mask] = (1.0 - alpha) * base[mask] + alpha * colors[mask]
     return base
+
+
+def _ordered_regions(regions: object) -> list[str]:
+    region_set = {str(region) for region in regions}
+    ordered = [region for region in REGION_COLORS if region in region_set]
+    ordered.extend(sorted(region_set - set(ordered)))
+    return ordered
+
+
+def _centroid_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=["epoch", "region", "pc1", "pc2", "pc3", "samples"])
+    return (
+        df.groupby(["epoch", "region"], as_index=False)
+        .agg(
+            pc1=("pc1", "mean"),
+            pc2=("pc2", "mean"),
+            pc3=("pc3", "mean"),
+            samples=("pc1", "size"),
+        )
+        .sort_values(["region", "epoch"])
+    )
+
+
+def _add_centroid_traces(
+    fig: object,
+    go: object,
+    centroid_df: pd.DataFrame,
+    regions: list[str],
+    show_legend: bool,
+) -> None:
+    for region in regions:
+        region_df = centroid_df[centroid_df["region"] == region].sort_values("epoch")
+        if region_df.empty:
+            continue
+        color = REGION_COLORS.get(region, "#666666")
+        fig.add_trace(
+            go.Scatter3d(
+                x=region_df["pc1"],
+                y=region_df["pc2"],
+                z=region_df["pc3"],
+                mode="lines+markers",
+                name=f"{region} centroid",
+                showlegend=show_legend,
+                line={"color": color, "width": 5},
+                marker={"color": color, "size": 7, "symbol": "diamond"},
+                hovertemplate=(
+                    "region=%{customdata[0]}<br>"
+                    "epoch=%{customdata[1]}<br>"
+                    "samples=%{customdata[2]}<br>"
+                    "PC1=%{x:.3f}<br>PC2=%{y:.3f}<br>PC3=%{z:.3f}<extra></extra>"
+                ),
+                customdata=region_df[["region", "epoch", "samples"]].to_numpy(),
+            )
+        )
+
+
+def _feature_separation_metrics(df: pd.DataFrame, epoch: int) -> pd.DataFrame:
+    current = df[df["epoch"] == epoch]
+    if current.empty:
+        return pd.DataFrame(columns=["metric", "value"])
+
+    coord_columns = ["pc1", "pc2", "pc3"]
+    centroids = current.groupby("region")[coord_columns].mean()
+    rows: list[dict[str, float | str]] = []
+
+    def centroid_distance(region_a: str, region_b: str) -> float | None:
+        if region_a not in centroids.index or region_b not in centroids.index:
+            return None
+        a = centroids.loc[region_a, coord_columns].to_numpy(dtype=np.float32)
+        b = centroids.loc[region_b, coord_columns].to_numpy(dtype=np.float32)
+        return float(np.linalg.norm(a - b))
+
+    boundary_within = None
+    if "boundary" in centroids.index:
+        boundary_points = current[current["region"] == "boundary"][coord_columns].to_numpy(
+            dtype=np.float32
+        )
+        boundary_centroid = centroids.loc["boundary", coord_columns].to_numpy(dtype=np.float32)
+        if boundary_points.size > 0:
+            distances = np.linalg.norm(boundary_points - boundary_centroid, axis=1)
+            boundary_within = float(distances.mean())
+            rows.append({"metric": "boundary_within", "value": boundary_within})
+
+    for metric, region_a, region_b in [
+        ("boundary_to_foreground", "boundary", "foreground"),
+        ("boundary_to_hard_background", "boundary", "hard_background"),
+        ("fp_to_foreground", "false_positive", "foreground"),
+        ("fn_to_foreground", "false_negative", "foreground"),
+    ]:
+        value = centroid_distance(region_a, region_b)
+        if value is not None:
+            rows.append({"metric": metric, "value": value})
+
+    boundary_to_hard = centroid_distance("boundary", "hard_background")
+    if boundary_to_hard is not None and boundary_within is not None:
+        rows.append({"metric": "boundary_hard_margin", "value": boundary_to_hard - boundary_within})
+
+    return pd.DataFrame(rows, columns=["metric", "value"])
 
 
 def _feature_sample_counts(features: np.lib.npyio.NpzFile) -> list[dict[str, object]]:

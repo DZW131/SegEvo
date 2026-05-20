@@ -1,7 +1,9 @@
 import numpy as np
 
 from segevo.feature_space import (
+    FeatureSpace,
     available_feature_layers,
+    downsample_feature_space,
     load_feature_space,
     pca_2d,
     pca_3d,
@@ -64,3 +66,31 @@ def test_load_and_project_feature_space_from_run(tmp_path):
     projection = project_feature_space(space)
     assert projection.x.shape == projection.y.shape == projection.z.shape == space.region_ids.shape
     assert projection.layer == "manual_layer"
+
+
+def test_downsample_feature_space_keeps_epoch_region_strata():
+    epochs = np.repeat(np.asarray([0, 1, 2], dtype=np.int32), 20)
+    region_ids = np.tile(np.repeat(np.asarray([0, 1], dtype=np.int16), 10), 3)
+    features = np.arange(60 * 3, dtype=np.float32).reshape(60, 3)
+    space = FeatureSpace(
+        layer="manual_layer",
+        features=features,
+        region_ids=region_ids,
+        region_names=("foreground", "boundary"),
+        case_ids=np.asarray(["case_001"] * 60, dtype=object),
+        epochs=epochs,
+        coords=np.zeros((60, 2), dtype=np.int32),
+    )
+
+    sampled = downsample_feature_space(space, max_points=6, seed=7)
+
+    assert sampled.features.shape[0] == 6
+    strata = set(zip(sampled.epochs.tolist(), sampled.region_ids.tolist()))
+    assert strata == {
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+        (2, 0),
+        (2, 1),
+    }
