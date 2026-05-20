@@ -52,82 +52,330 @@ SEPARATION_LABELS = {
     "boundary_hard_margin": "boundary hard margin",
 }
 
+CASE_METRIC_ORDER = ("dice", "surface_dice", "hd95", "volume_error")
+BOUNDARY_METRIC_ORDER = (
+    "boundary_dice",
+    "surface_dice",
+    "hd95",
+    "boundary_to_hard_background",
+    "boundary_hard_margin",
+)
+LOWER_IS_BETTER = {"hd95"}
+CLOSER_TO_ZERO_IS_BETTER = {"volume_error"}
+
 PAGE_GUIDES = {
     "case_timeline": """
 **English**
 
-- Use `Case` and `Epoch` in the sidebar to replay one fixed probe case through training.
-- `Image + GT` overlays the ground-truth mask in green; `Image + Prediction` overlays the
-  model prediction in blue.
-- `Error Map` uses green for true positives, orange for false positives, and red for false
-  negatives.
-- Metric curves show whether this case is improving. Dice and surface Dice are better when
-  higher; HD95 is better when lower; volume error is better when closer to zero.
-- Feature summaries and sample counts confirm which network layers were logged at this epoch.
+**What this page is for**
+
+Use this page when you want to answer a simple question: for one fixed probe case,
+what did the model predict at this epoch, where is it wrong, and is the case getting
+better as training continues?
+
+**How to use it**
+
+1. Choose `Case` in the sidebar. A case is usually one validation image, slice, tile,
+   or 3D volume that you log repeatedly during training.
+2. Move the sidebar `Epoch` slider. All panels on this page switch to the same epoch,
+   so you can replay the model's behavior over time.
+3. Compare the three image panels first, then read the metric curve below.
+4. Use `Training Readout` for a quick current-epoch summary before digging into the
+   full timeline.
+
+**How to read the panels**
+
+- `Image + GT`: green is the ground-truth annotation. This is the target the model
+  should learn.
+- `Image + Prediction`: blue is the model's prediction at the selected epoch.
+  If blue gradually overlaps green as you move epochs, the model is learning this case.
+- `Error Map`: green means correct foreground, orange means false positive
+  (the model predicted too much), and red means false negative (the model missed
+  real foreground).
+- `Training Readout`: current metric cards show the selected epoch and how much each
+  metric changed from the first logged epoch. The error-balance table tells you whether
+  mistakes are dominated by FP, FN, or both.
+- `Metrics Timeline`: Dice and surface Dice should go up. HD95 should go down.
+  Volume error should move toward zero. When the curve improves but the error map
+  still has red/orange regions, the model is improving globally but still has local
+  failure modes.
+- `Feature Summaries` and `Feature Sample Counts`: these confirm that SegEvo actually
+  captured intermediate layer features for this epoch. If this section is missing,
+  the training script may not have attached feature layers or logged probe features.
+
+**What you can learn about training**
+
+- Whether training is actually improving this case, not just improving the average
+  validation score.
+- Whether errors are mostly false positives, false negatives, or boundary shifts.
+- Whether improvement is smooth or unstable across epochs. A curve that jumps up and
+  down often means this probe case is sensitive to the current training setup.
+- Whether a metric improvement matches the visual result. If Dice rises but the error
+  map still shows the same red/orange area, the model may be learning easy regions while
+  ignoring the hard part.
 
 **中文**
 
-- 在左侧用 `Case` 和 `Epoch` 回放同一个固定 probe 病例在训练过程中的变化。
-- `Image + GT` 用绿色叠加真实标注；`Image + Prediction` 用蓝色叠加模型预测。
-- `Error Map` 中绿色是真阳性，橙色是假阳性，红色是假阴性。
-- 指标曲线用于判断这个病例是否在变好：Dice 和 surface Dice 越高越好，HD95 越低越好，
-  volume error 越接近 0 越好。
-- Feature summaries 和 sample counts 用来确认当前 epoch 记录了哪些网络层特征。
+**这个页面用来回答什么**
+
+这个页面适合先看一个最直观的问题：对同一个固定 probe 病例，模型在当前 epoch
+预测成什么样、错在哪里、随着训练推进有没有变好。
+
+**怎么操作**
+
+1. 先在左侧 `Case` 选择一个病例。这里的 case 通常是你训练时反复记录的一张验证图、
+   一个切片、一个 WSI tile，或者一个 3D volume。
+2. 再拖动左侧 `Epoch`。这个页面所有内容都会切到同一个 epoch，所以可以像回放一样看
+   模型从早期到后期的变化。
+3. 阅读顺序建议是：先看上面的三张图，再看下面的指标曲线。
+4. `Training Readout` 是当前 epoch 的快速摘要，建议先看它，再细看曲线。
+
+**怎么看图和指标**
+
+- `Image + GT`：绿色是真实标注，也就是模型应该学到的目标。
+- `Image + Prediction`：蓝色是模型当前 epoch 的预测。如果拖动 epoch 时蓝色逐渐贴近绿色，
+  说明这个病例在变好。
+- `Error Map`：绿色表示前景预测对了，橙色表示假阳性 FP，也就是模型多分出来了；
+  红色表示假阴性 FN，也就是模型漏掉了真实前景。
+- `Training Readout`：指标卡展示当前 epoch 的数值，以及相对第一个记录 epoch 的变化；
+  error-balance 表格可以快速判断错误主要来自 FP、FN，还是两者都有。
+- `Metrics Timeline`：Dice 和 surface Dice 越高越好；HD95 越低越好；
+  volume error 越接近 0 越好。如果曲线在变好，但 Error Map 仍然有红色或橙色区域，
+  说明整体在进步，但局部还有稳定错误。
+- `Feature Summaries` 和 `Feature Sample Counts`：用来确认当前 epoch 是否真的记录到了中间层
+  feature。如果这里没有内容，通常说明训练脚本还没有 attach layer，或者没有把 probe feature
+  写进 SegEvo run。
+
+**从这里能读出哪些训练信息**
+
+- 这个病例本身有没有真的变好，而不只是整体 validation score 变好了。
+- 错误主要是假阳性、多分了，还是假阴性、漏分了，或者主要是边界偏移。
+- 训练过程是否稳定。如果曲线反复上下跳，说明这个 probe case 对当前训练设置比较敏感。
+- 指标变好是否真的对应视觉变好。如果 Dice 上升了，但 Error Map 里同一块红色或橙色一直存在，
+  说明模型可能只学到了容易区域，困难区域还没解决。
 """,
     "feature_space": """
 **English**
 
-- This page projects sampled high-dimensional layer features into a stable 3D PCA space.
-  The PC axes are relative coordinates, so focus on clustering, distance, and trajectories.
-- `Layer` chooses the hooked network layer. Deeper layers usually carry more semantic
-  information; shallower layers often reflect texture and color.
-- `Epoch` is synced with the sidebar epoch so every tab is looking at the same training
-  moment. Enable `Epoch playback` to animate sampled points up to that epoch.
-- `Region preset` quickly switches between all regions, core regions, FP/FN errors, and
-  boundary-focused views; `Regions` still lets you fine tune the visible groups.
-- `Surface` can add convex hulls or density clouds for foreground, boundary, and hard
-  background clusters.
-- Click a point to inspect its case, epoch, region, feature coordinate, and mapped image
-  location. `Export 3D HTML` saves a shareable interactive plot.
-- `Separation` summarizes distances between region centroids. Larger boundary-to-hard
-  background distance often means the model separates boundary from confusing background
-  more clearly.
+**What this page is for**
+
+This page does not show the mask directly. It shows how the model represents different
+types of pixels or voxels inside a selected layer. SegEvo samples foreground, boundary,
+hard background, false-positive, and false-negative locations, takes their layer features,
+and projects those high-dimensional vectors into a 3D PCA plot.
+
+The axes `PC1`, `PC2`, and `PC3` are not image coordinates. They are feature-space
+coordinates. Do not ask whether PC1 means left/right or bright/dark. Instead, ask:
+are useful regions forming separate groups, are error points moving closer to correct
+regions, and are centroid trajectories stabilizing across epochs?
+
+**How to use it**
+
+1. `Layer`: choose which hooked network layer to inspect. Early layers usually respond
+   to texture, stain, edge, and intensity. Deeper layers usually carry more class or
+   shape information.
+2. `Epoch`: this is synced with the sidebar epoch. If the sidebar says epoch 6, this
+   page also focuses on epoch 6.
+3. `Region preset`: start here instead of manually clicking many labels.
+   `All regions` shows everything, `Core regions` shows foreground/boundary/hard
+   background, `Errors only (FP/FN)` isolates mistakes, and `Boundary focus` is useful
+   when debugging edge errors.
+4. `Display`: use `Points + centroid trajectories` for the normal view. `Points only`
+   is cleaner when there are many samples. `Centroids only` is best when you want to
+   see how each region moves through training.
+5. `Epoch playback`: turn this on when you want an animation from early epochs to the
+   current sidebar epoch.
+6. `Surface`: `Convex hull` wraps a region with a transparent shell; `Density cloud`
+   gives a softer volume-like impression. These are most useful for foreground,
+   boundary, and hard background.
+7. Click any point to fill `Point Detail`. It tells you the point's case, epoch, region,
+   feature coordinate, and mapped image location.
+8. `Export 3D HTML` downloads the interactive plot for reports, slides, papers, or
+   GitHub issues.
+
+**How to interpret common patterns**
+
+- Good sign: foreground, boundary, and hard background become more separated as epochs
+  increase.
+- Good sign: FP/FN points shrink in number or move closer to the correct foreground or
+  boundary cluster.
+- Warning sign: boundary and hard background remain mixed even when Dice is high. The
+  model may look good globally but still be unstable around edges.
+- Warning sign: centroid trajectories jump around late in training. The representation
+  may still be unstable, or the learning rate may be too high.
+- `Separation` gives a quick numeric summary of these distances. Larger
+  boundary-to-hard-background distance is usually better; smaller FP/FN-to-foreground
+  distance can mean errors are becoming less severe.
+
+**What you can learn about training**
+
+- Whether the network representation is becoming more organized. Good training often
+  turns mixed feature clouds into clearer region clusters.
+- Whether boundary learning is happening internally before it is obvious in Dice.
+  Boundary points moving away from hard background can be an early sign of improvement.
+- Whether the model is confusing foreground with nearby background. If foreground,
+  boundary, and hard background stay tangled, the model may need better data, loss
+  weighting, augmentation, or more boundary-focused supervision.
+- Whether FP/FN errors are random or systematic. A compact FP/FN cluster means the model
+  is making a repeatable kind of mistake; scattered FP/FN points often mean errors come
+  from multiple causes.
+- Which layer is most diagnostic. If deeper layers separate regions clearly but shallow
+  layers do not, the model has learned a semantic decision. If no layer separates them,
+  the training signal may be too weak for this task.
 
 **中文**
 
-- 本页把采样到的高维中间层特征投影到稳定的 3D PCA 空间。PC 轴是相对坐标，
-  重点看点群是否分开、距离是否变大、中心轨迹如何移动。
-- `Layer` 选择被 hook 的网络层。深层通常更偏语义，浅层通常更偏颜色、纹理和边缘。
-- `Epoch` 跟左侧全局 epoch 同步，确保三个页面看的都是同一个训练时刻。打开
-  `Epoch playback` 可以播放到当前 epoch 为止的点云变化。
-- `Region preset` 可以快速切换全部区域、核心区域、只看 FP/FN、边界聚焦视图；
-  `Regions` 仍然可以手动细调显示哪些点群。
-- `Surface` 可以给 foreground、boundary、hard background 加 convex hull 或
-  density cloud，帮助看 3D 点群边界和覆盖范围。
-- 点击任意点可以查看它来自哪个 case、epoch、region、feature 坐标，以及映射回原图的
-  位置。`Export 3D HTML` 可以导出可分享的交互式 3D 图。
-- `Separation` 是区域中心距离的定量摘要。boundary 到 hard background 距离越大，
-  通常说明模型越能把边界和易混背景区分开。
+**这个页面用来回答什么**
+
+这个页面不是直接看 mask，而是看“模型内部怎么看这些像素/体素”。SegEvo 会从
+foreground、boundary、hard background、false positive、false negative 这些区域采样，
+取出它们在某个网络层里的 feature vector，然后用 3D PCA 压到三维空间里画出来。
+
+这里的 `PC1`、`PC2`、`PC3` 不是原图坐标，不代表图像里的上下左右，也不直接代表亮度或颜色。
+更应该看的问题是：不同区域的点群有没有分开，错误点有没有往正确点群靠近，中心轨迹到后期
+是否越来越稳定。
+
+**怎么操作**
+
+1. `Layer`：选择要看的网络层。浅层通常更像是在看纹理、染色、边缘、强度；深层通常更接近
+   类别、形状和语义。
+2. `Epoch`：这里跟左侧全局 epoch 同步。左侧是 epoch 6，这里看的也是 epoch 6。
+3. `Region preset`：建议先用这个，不用一上来手动点很多标签。`All regions` 看全部；
+   `Core regions` 看 foreground / boundary / hard background；`Errors only (FP/FN)` 只看错误点；
+   `Boundary focus` 适合排查边界问题。
+4. `Display`：常规建议用 `Points + centroid trajectories`。点太多时用 `Points only` 更清爽；
+   想看训练过程中的区域移动趋势时，用 `Centroids only`。
+5. `Epoch playback`：打开后可以播放从早期到当前左侧 epoch 的点云变化。
+6. `Surface`：`Convex hull` 会给点群包一层透明外壳；`Density cloud` 更像一个柔和的密度云。
+   它们主要用于看 foreground、boundary、hard background 的覆盖范围。
+7. 点击 3D 图里的任意点，右侧 `Point Detail` 会显示它来自哪个 case、epoch、region、
+   feature 坐标，以及映射回原图的大致位置。
+8. `Export 3D HTML` 可以把当前交互式 3D 图导出，后续放到汇报、论文补充材料或 GitHub issue
+   里都比较方便。
+
+**常见现象怎么判断**
+
+- 好现象：随着 epoch 增加，foreground、boundary、hard background 逐渐分开。
+- 好现象：FP/FN 点变少，或者逐渐靠近正确的 foreground / boundary 点群，说明错误在变轻。
+- 需要注意：Dice 已经不错，但 boundary 和 hard background 仍然混在一起。这说明整体重叠还行，
+  但边界附近可能不稳定。
+- 需要注意：训练后期中心轨迹还在大幅跳动，说明 feature 表征可能还没稳定，也可能学习率偏大。
+- `Separation` 是这些距离的数字摘要。boundary 到 hard background 越远通常越好；
+  FP/FN 到 foreground 越近，有时说明错误点正在变得更像正确前景，错误严重程度在下降。
+
+**从这里能读出哪些训练信息**
+
+- 网络内部表征有没有变得更有组织。比较好的训练通常会让混在一起的点云逐渐形成更清楚的区域簇。
+- 边界学习是不是已经在内部发生了。有时 Dice 还没明显变化，但 boundary 点已经开始远离
+  hard background，这可能是后续边界变好的早期信号。
+- 模型是否把前景和附近背景混淆。如果 foreground、boundary、hard background 一直缠在一起，
+  可能需要更合适的数据、loss 权重、augmentation，或者更强调边界的监督。
+- FP/FN 是随机错误还是系统性错误。如果 FP/FN 形成紧凑点群，说明模型在稳定地犯某一类错误；
+  如果 FP/FN 很分散，说明错误来源可能比较复杂。
+- 哪一层最有诊断价值。如果深层能把区域分开、浅层分不开，说明模型形成了语义判断；
+  如果所有层都分不开，可能是这个任务的训练信号还不够强。
 """,
     "boundary_learning": """
 **English**
 
-- This page focuses on boundary learning rather than whole-mask overlap.
-- `Boundary width` controls how thick the boundary band is when computing boundary Dice.
-- `Surface tolerance` controls the accepted distance for surface Dice.
-- Boundary Dice and surface Dice are better when higher; HD95 is better when lower.
-- Boundary feature separation compares boundary features with foreground and hard
-  background features. A rising separation trend usually means boundary representations
-  are becoming more stable.
+**What this page is for**
+
+Dice can look acceptable even when the predicted edge is rough, shifted, or unstable.
+This page focuses on that edge behavior. It asks: is the model learning the object
+boundary, are surface errors shrinking, and are boundary features separating from
+foreground and confusing background?
+
+**How to use it**
+
+1. `Boundary cases`: use `Current case` when debugging one probe case. Use `All cases`
+   when you want an average trend across the logged run.
+2. `Boundary layer`: choose which feature layer to use for boundary-separation analysis.
+   A deeper layer often gives a cleaner semantic boundary; a shallower layer may reveal
+   texture-driven confusion.
+3. `Boundary width`: controls how thick the boundary band is. A small value is stricter
+   and focuses on the exact edge. A larger value is more forgiving and useful when masks
+   are noisy or annotation boundaries are not pixel-perfect.
+4. `Surface tolerance`: controls how much distance error is accepted by surface Dice.
+   Smaller tolerance is stricter. Larger tolerance asks whether the prediction is at
+   least close to the target surface.
+5. In `Boundary metrics`, select the curves you care about. Start with
+   `boundary_dice`, `surface_dice`, and `hd95`.
+6. Read `Boundary Readout` first. It compares the latest logged epoch with the first
+   logged epoch and translates the curves into a short training diagnosis.
+
+**How to interpret the curves**
+
+- `boundary_dice`: higher is better. It means the predicted boundary overlaps the
+  ground-truth boundary band more closely.
+- `surface_dice`: higher is better. It means the predicted surface is within the chosen
+  distance tolerance.
+- `hd95`: lower is better. It summarizes large boundary errors while being less sensitive
+  than the maximum Hausdorff distance.
+- `Boundary Feature Separation`: this table and trend compare boundary features against
+  foreground and hard background. If boundary-to-hard-background distance rises, the
+  model is usually learning to tell the true edge apart from nearby confusing tissue.
+- `Boundary Readout`: compact metric cards show the latest boundary state. The diagnosis
+  bullets summarize whether overlap, surface distance, and feature separation improved.
+- A useful pattern is: boundary Dice goes up, HD95 goes down, and boundary-to-hard-
+  background separation goes up. That usually means both the output mask and the internal
+  boundary representation are improving.
+
+**What you can learn about training**
+
+- Whether the model is only learning coarse object overlap or also learning usable
+  boundaries.
+- Whether a high Dice score is hiding boundary problems. High Dice with poor HD95 or
+  weak boundary separation means the model may be good in the center but unreliable at
+  the edge.
+- Whether boundary errors are getting smaller over time. Surface Dice rising and HD95
+  falling is usually more meaningful for clinical or pathology edge quality than Dice
+  alone.
+- Whether boundary representations are stable enough for deployment-like data. If
+  boundary feature separation does not improve, the model may fail on hard negatives
+  near the target tissue.
 
 **中文**
 
-- 本页专门看边界学习，而不只是整体 mask 重叠程度。
-- `Boundary width` 控制计算 boundary Dice 时边界带的宽度。
-- `Surface tolerance` 控制 surface Dice 允许的边界距离误差。
-- boundary Dice 和 surface Dice 越高越好；HD95 越低越好。
-- Boundary feature separation 比较边界特征与 foreground / hard background 特征。
-  如果分离趋势上升，通常说明模型对边界的表征更稳定了。
+**这个页面用来回答什么**
+
+有时候 Dice 看起来还可以，但边界其实很毛糙、偏移，或者某些区域反复分错。这个页面专门看
+边界学习：模型有没有学到真实边缘，surface 误差有没有变小，边界特征能不能和前景内部、
+易混背景区分开。
+
+**怎么操作**
+
+1. `Boundary cases`：调试单个 probe 病例时选 `Current case`；想看整体趋势时选 `All cases`。
+2. `Boundary layer`：选择用于分析边界特征的网络层。深层通常更偏语义边界；浅层可能更容易暴露
+   纹理、染色、强度导致的混淆。
+3. `Boundary width`：控制边界带有多宽。数值小更严格，主要看精确边缘；数值大更宽松，
+   适合标注边缘本身比较粗糙或不完全像素级准确的数据。
+4. `Surface tolerance`：控制 surface Dice 接受多大的边界距离误差。数值小更严格；
+   数值大则是在问“预测边界是否至少离真实边界不远”。
+5. `Boundary metrics` 里可以选择要看的曲线。建议先看 `boundary_dice`、`surface_dice` 和 `hd95`。
+6. 先看 `Boundary Readout`。它会把最新 epoch 和第一个记录 epoch 做对比，并把曲线翻译成
+   简短的训练诊断。
+
+**怎么看曲线和表格**
+
+- `boundary_dice`：越高越好，表示预测边界和真实边界带重叠得更好。
+- `surface_dice`：越高越好，表示预测 surface 在设定容忍距离内的比例更高。
+- `hd95`：越低越好，它反映较大的边界误差，但比最大 Hausdorff distance 更不容易被极端离群点影响。
+- `Boundary Feature Separation`：看 boundary feature 和 foreground / hard background feature
+  是否分开。boundary 到 hard background 距离上升，通常说明模型更能区分真实边界和附近易混背景。
+- `Boundary Readout`：用紧凑指标卡展示最新边界状态，并用诊断语句总结边界重叠、surface 距离、
+  feature separation 是否改善。
+- 一个比较理想的训练趋势是：boundary Dice 上升，HD95 下降，同时 boundary-to-hard-background
+  separation 上升。这说明输出 mask 的边界和模型内部的边界表征都在变好。
+
+**从这里能读出哪些训练信息**
+
+- 模型只是学到了粗略重叠，还是也学到了可用的边界。
+- 高 Dice 是否掩盖了边界问题。如果 Dice 高，但 HD95 差，或者 boundary separation 很弱，
+  说明模型可能在目标中心区域还不错，但边缘不可靠。
+- 边界误差是否真的随训练变小。对于临床图像或病理分割，surface Dice 上升、HD95 下降通常
+  比只看 Dice 更能反映边界质量。
+- 边界表征是否足够稳定。如果 boundary feature separation 一直没有改善，模型在真实数据里
+  遇到目标附近的 hard negative 时可能仍然容易出错。
 """,
 }
 
@@ -209,14 +457,14 @@ def _render_case_timeline(
         st.subheader("Error Map")
         st.image(_error_overlay(image_slice, err_slice), clamp=True)
 
+    case_metrics = _case_metric_frame(metrics, case_id)
+    _render_case_training_readout(st, case_metrics, epoch, err)
+
     if not metrics.empty:
         st.subheader("Metrics Timeline")
-        case_metrics = metrics[metrics["case_id"].astype(str) == str(case_id)]
-        if case_metrics.empty:
-            case_metrics = metrics
         metric_names = [
             name
-            for name in ["dice", "surface_dice", "hd95", "volume_error"]
+            for name in CASE_METRIC_ORDER
             if name in case_metrics.columns
         ]
         selected = st.multiselect("Metrics", metric_names, default=metric_names[:2])
@@ -543,6 +791,8 @@ def _render_boundary_learning(st: object, px: object, run_path: Path, current_ca
         plot_df = df.sort_values("epoch")
 
     with plot_area:
+        _render_boundary_training_readout(st, plot_df)
+
         st.subheader("Boundary Metrics")
         metric_choices = [
             metric
@@ -655,6 +905,244 @@ def _render_page_guide(st: object, page: str) -> None:
         return
     with st.expander("How to read this page / 如何阅读本页", expanded=False):
         st.markdown(guide.strip())
+
+
+def _case_metric_frame(metrics: pd.DataFrame, case_id: str) -> pd.DataFrame:
+    if metrics.empty:
+        return pd.DataFrame()
+    if "case_id" not in metrics.columns:
+        return metrics.copy()
+    case_metrics = metrics[metrics["case_id"].astype(str) == str(case_id)].copy()
+    return case_metrics if not case_metrics.empty else metrics.copy()
+
+
+def _render_case_training_readout(
+    st: object,
+    case_metrics: pd.DataFrame,
+    epoch: int,
+    err: np.ndarray,
+) -> None:
+    st.subheader("Training Readout")
+    metric_rows = _metric_readout_rows(case_metrics, CASE_METRIC_ORDER, focus_epoch=epoch)
+    if metric_rows:
+        _render_metric_cards(st, metric_rows)
+
+    error_rows = _error_balance_rows(err)
+    if error_rows:
+        st.caption(_error_balance_sentence(error_rows))
+        _dataframe(st, pd.DataFrame(error_rows))
+
+
+def _render_boundary_training_readout(st: object, plot_df: pd.DataFrame) -> None:
+    st.subheader("Boundary Readout")
+    metric_rows = _metric_readout_rows(plot_df, BOUNDARY_METRIC_ORDER)
+    if not metric_rows:
+        st.info("No numeric boundary metrics available for this selection.")
+        return
+
+    _render_metric_cards(st, metric_rows)
+    diagnosis = _boundary_diagnosis(metric_rows)
+    if diagnosis:
+        st.markdown("\n".join(f"- {item}" for item in diagnosis))
+
+
+def _render_metric_cards(st: object, rows: list[dict[str, object]]) -> None:
+    cols = st.columns(min(len(rows), 4))
+    for index, row in enumerate(rows):
+        col = cols[index % len(cols)]
+        with col:
+            try:
+                st.metric(
+                    str(row["metric"]),
+                    _format_metric_value(float(row["value"])),
+                    delta=str(row["delta"]),
+                    delta_color=str(row["delta_color"]),
+                )
+            except TypeError:
+                st.metric(
+                    str(row["metric"]),
+                    _format_metric_value(float(row["value"])),
+                    delta=str(row["delta"]),
+                )
+            st.caption(str(row["status"]))
+
+
+def _metric_readout_rows(
+    df: pd.DataFrame,
+    metric_names: tuple[str, ...],
+    focus_epoch: int | None = None,
+) -> list[dict[str, object]]:
+    if df.empty or "epoch" not in df.columns:
+        return []
+
+    available = [metric for metric in metric_names if metric in df.columns]
+    if not available:
+        return []
+
+    numeric = df[["epoch", *available]].copy()
+    numeric["epoch"] = pd.to_numeric(numeric["epoch"], errors="coerce")
+    for metric in available:
+        numeric[metric] = pd.to_numeric(numeric[metric], errors="coerce")
+    numeric = numeric.dropna(subset=["epoch"])
+    if numeric.empty:
+        return []
+
+    by_epoch = (
+        numeric.groupby("epoch", as_index=False)[available]
+        .mean(numeric_only=True)
+        .sort_values("epoch")
+    )
+    if by_epoch.empty:
+        return []
+
+    epochs = by_epoch["epoch"].to_numpy(dtype=np.float64)
+    selected_index = (
+        int(np.argmin(np.abs(epochs - float(focus_epoch))))
+        if focus_epoch is not None
+        else len(by_epoch) - 1
+    )
+    current = by_epoch.iloc[selected_index]
+    first = by_epoch.iloc[0]
+
+    rows: list[dict[str, object]] = []
+    for metric in available:
+        value = float(current[metric])
+        first_value = float(first[metric])
+        if not np.isfinite(value):
+            continue
+        status = _metric_status(metric, value, first_value)
+        delta = value - first_value if np.isfinite(first_value) else np.nan
+        rows.append(
+            {
+                "metric": metric,
+                "epoch": int(current["epoch"]),
+                "value": value,
+                "first_value": first_value,
+                "delta_value": delta,
+                "delta": _format_metric_delta(delta),
+                "status": status,
+                "delta_color": _metric_delta_color(metric),
+            }
+        )
+    return rows
+
+
+def _metric_status(metric: str, value: float, baseline: float, tol: float = 1e-6) -> str:
+    if not np.isfinite(baseline):
+        return "baseline unavailable"
+    if metric in LOWER_IS_BETTER:
+        if value < baseline - tol:
+            return "improved vs first epoch"
+        if value > baseline + tol:
+            return "worse vs first epoch"
+        return "stable vs first epoch"
+    if metric in CLOSER_TO_ZERO_IS_BETTER:
+        if abs(value) < abs(baseline) - tol:
+            return "closer to target than first epoch"
+        if abs(value) > abs(baseline) + tol:
+            return "farther from target than first epoch"
+        return "stable vs first epoch"
+    if value > baseline + tol:
+        return "improved vs first epoch"
+    if value < baseline - tol:
+        return "worse vs first epoch"
+    return "stable vs first epoch"
+
+
+def _metric_delta_color(metric: str) -> str:
+    if metric in LOWER_IS_BETTER:
+        return "inverse"
+    if metric in CLOSER_TO_ZERO_IS_BETTER:
+        return "off"
+    return "normal"
+
+
+def _format_metric_value(value: float) -> str:
+    if not np.isfinite(value):
+        return "nan"
+    if abs(value) >= 100:
+        return f"{value:.1f}"
+    if abs(value) >= 10:
+        return f"{value:.2f}"
+    return f"{value:.3f}"
+
+
+def _format_metric_delta(delta: float) -> str:
+    if not np.isfinite(delta):
+        return "vs first n/a"
+    return f"vs first {delta:+.3f}"
+
+
+def _error_balance_rows(err: np.ndarray) -> list[dict[str, object]]:
+    err_i = np.asarray(err, dtype=np.int64)
+    tp = int(np.count_nonzero(err_i == 1))
+    fp = int(np.count_nonzero(err_i == 2))
+    fn = int(np.count_nonzero(err_i == 3))
+    pred_foreground = tp + fp
+    gt_foreground = tp + fn
+    precision = tp / pred_foreground if pred_foreground else np.nan
+    recall = tp / gt_foreground if gt_foreground else np.nan
+    total_error = fp + fn
+    total_labeled = tp + total_error
+
+    rows = [
+        ("true_positive", tp, "correct foreground"),
+        ("false_positive", fp, "over-segmentation"),
+        ("false_negative", fn, "missed foreground"),
+        ("precision_proxy", precision, "TP / (TP + FP)"),
+        ("recall_proxy", recall, "TP / (TP + FN)"),
+    ]
+    output: list[dict[str, object]] = []
+    for name, value, meaning in rows:
+        if isinstance(value, float):
+            display_value = value
+            fraction = value
+        else:
+            display_value = int(value)
+            fraction = value / total_labeled if total_labeled else np.nan
+        output.append(
+            {
+                "signal": name,
+                "value": display_value,
+                "fraction": fraction,
+                "meaning": meaning,
+            }
+        )
+    return output
+
+
+def _error_balance_sentence(rows: list[dict[str, object]]) -> str:
+    values = {str(row["signal"]): row["value"] for row in rows}
+    fp = int(values.get("false_positive", 0))
+    fn = int(values.get("false_negative", 0))
+    if fp == 0 and fn == 0:
+        return "No FP/FN pixels at this epoch for the logged mask."
+    if fp > fn * 1.5:
+        return "Current errors are FP-dominant: the model is mostly over-segmenting."
+    if fn > fp * 1.5:
+        return "Current errors are FN-dominant: the model is mostly missing foreground."
+    return "Current errors are balanced between FP and FN."
+
+
+def _boundary_diagnosis(rows: list[dict[str, object]]) -> list[str]:
+    by_metric = {str(row["metric"]): str(row["status"]) for row in rows}
+    messages: list[str] = []
+    if by_metric.get("boundary_dice", "").startswith("improved"):
+        messages.append("Boundary overlap improved compared with the first logged epoch.")
+    elif by_metric.get("boundary_dice", "").startswith("worse"):
+        messages.append("Boundary overlap is worse than the first logged epoch.")
+
+    if by_metric.get("hd95", "").startswith("improved"):
+        messages.append("Large boundary errors are shrinking because HD95 went down.")
+    elif by_metric.get("hd95", "").startswith("worse"):
+        messages.append("Large boundary errors increased because HD95 went up.")
+
+    if by_metric.get("boundary_to_hard_background", "").startswith("improved"):
+        messages.append("Boundary features are separating from hard background.")
+    elif by_metric.get("boundary_to_hard_background", "").startswith("worse"):
+        messages.append("Boundary features are less separated from hard background.")
+
+    return messages
 
 
 def _ordered_regions(regions: object) -> list[str]:
