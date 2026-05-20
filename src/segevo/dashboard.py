@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from segevo.artifacts import list_cases, list_epochs, load_array, read_manifest
+from segevo.artifacts import list_cases, list_epochs, load_array, read_manifest, sanitize_id
 from segevo.boundary_learning import boundary_learning_records
 from segevo.feature_space import (
     available_feature_layers,
@@ -32,6 +32,15 @@ REGION_COLORS = {
     "hard_background": "#FF4136",
     "false_positive": "#FF851B",
     "false_negative": "#2ECC40",
+}
+
+CORE_SURFACE_REGIONS = ("foreground", "boundary", "hard_background")
+ERROR_REGIONS = ("false_positive", "false_negative")
+REGION_PRESETS = {
+    "All regions": tuple(REGION_COLORS),
+    "Core regions": CORE_SURFACE_REGIONS,
+    "Errors only (FP/FN)": ERROR_REGIONS,
+    "Boundary focus": ("boundary", "hard_background", "false_positive", "false_negative"),
 }
 
 SEPARATION_LABELS = {
@@ -72,10 +81,14 @@ PAGE_GUIDES = {
   The PC axes are relative coordinates, so focus on clustering, distance, and trajectories.
 - `Layer` chooses the hooked network layer. Deeper layers usually carry more semantic
   information; shallower layers often reflect texture and color.
-- `Epoch` shows points from the selected epoch, while centroid trajectories show how each
-  region has moved up to that epoch.
-- `Regions` filters foreground, boundary, hard background, false positive, and false
-  negative samples.
+- `Epoch` is synced with the sidebar epoch so every tab is looking at the same training
+  moment. Enable `Epoch playback` to animate sampled points up to that epoch.
+- `Region preset` quickly switches between all regions, core regions, FP/FN errors, and
+  boundary-focused views; `Regions` still lets you fine tune the visible groups.
+- `Surface` can add convex hulls or density clouds for foreground, boundary, and hard
+  background clusters.
+- Click a point to inspect its case, epoch, region, feature coordinate, and mapped image
+  location. `Export 3D HTML` saves a shareable interactive plot.
 - `Separation` summarizes distances between region centroids. Larger boundary-to-hard
   background distance often means the model separates boundary from confusing background
   more clearly.
@@ -85,9 +98,14 @@ PAGE_GUIDES = {
 - 本页把采样到的高维中间层特征投影到稳定的 3D PCA 空间。PC 轴是相对坐标，
   重点看点群是否分开、距离是否变大、中心轨迹如何移动。
 - `Layer` 选择被 hook 的网络层。深层通常更偏语义，浅层通常更偏颜色、纹理和边缘。
-- `Epoch` 显示当前 epoch 的点云，中心轨迹显示各区域从早期到当前 epoch 的移动过程。
-- `Regions` 用来筛选 foreground、boundary、hard background、false positive、
-  false negative。
+- `Epoch` 跟左侧全局 epoch 同步，确保三个页面看的都是同一个训练时刻。打开
+  `Epoch playback` 可以播放到当前 epoch 为止的点云变化。
+- `Region preset` 可以快速切换全部区域、核心区域、只看 FP/FN、边界聚焦视图；
+  `Regions` 仍然可以手动细调显示哪些点群。
+- `Surface` 可以给 foreground、boundary、hard background 加 convex hull 或
+  density cloud，帮助看 3D 点群边界和覆盖范围。
+- 点击任意点可以查看它来自哪个 case、epoch、region、feature 坐标，以及映射回原图的
+  位置。`Export 3D HTML` 可以导出可分享的交互式 3D 图。
 - `Separation` 是区域中心距离的定量摘要。boundary 到 hard background 距离越大，
   通常说明模型越能把边界和易混背景区分开。
 """,
@@ -155,7 +173,7 @@ def run_dashboard(run_dir: str | Path) -> None:
         _render_case_timeline(st, px, run_path, case_id, epoch, metrics)
 
     with feature_space_tab:
-        _render_feature_space(st, px, run_path, case_id)
+        _render_feature_space(st, px, run_path, case_id, epoch)
 
     with boundary_tab:
         _render_boundary_learning(st, px, run_path, case_id)
@@ -239,7 +257,13 @@ def _render_case_timeline(
                 _dataframe(st, pd.DataFrame(sample_rows))
 
 
-def _render_feature_space(st: object, px: object, run_path: Path, current_case_id: str) -> None:
+def _render_feature_space(
+    st: object,
+    px: object,
+    run_path: Path,
+    current_case_id: str,
+    sidebar_epoch: int,
+) -> None:
     import plotly.graph_objects as go
 
     _render_page_guide(st, "feature_space")
@@ -268,15 +292,15 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
         if not available_epochs:
             st.info("No epochs found for this case selection.")
             return
-        if len(available_epochs) == 1:
-            focus_epoch = available_epochs[0]
+        focus_epoch = _nearest_epoch(available_epochs, sidebar_epoch)
+        if focus_epoch == sidebar_epoch:
             st.write(f"Epoch: `{focus_epoch}`")
         else:
-            focus_epoch = st.select_slider(
-                "Epoch",
-                options=available_epochs,
-                value=available_epochs[-1],
+            st.write(
+                f"Epoch: `{focus_epoch}` "
+                f"(nearest available to sidebar `{sidebar_epoch}`)"
             )
+        st.caption("Synced with the sidebar epoch.")
         display_mode = st.selectbox(
             "Display",
             ["Points + centroid trajectories", "Points only", "Centroids only"],
@@ -299,7 +323,31 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
     all_regions = _ordered_regions(df["region"].dropna().unique())
 
     with controls:
-        selected_regions = st.multiselect("Regions", all_regions, default=all_regions)
+        region_preset = st.selectbox("Region preset", list(REGION_PRESETS))
+        default_regions = _default_regions_for_preset(all_regions, region_preset)
+        selected_regions = st.multiselect(
+            "Regions",
+            all_regions,
+            default=default_regions,
+            key=f"feature_regions_{region_preset}",
+        )
+        animate_epochs = st.checkbox(
+            "Epoch playback",
+            value=False,
+            help="Animate sampled points across epochs up to the selected epoch.",
+        )
+        surface_mode = st.selectbox("Surface", ["None", "Convex hull", "Density cloud"])
+        if surface_mode == "None":
+            surface_regions: list[str] = []
+        else:
+            surface_region_options = [
+                region for region in CORE_SURFACE_REGIONS if region in all_regions
+            ]
+            surface_regions = st.multiselect(
+                "Surface regions",
+                all_regions,
+                default=surface_region_options,
+            )
 
     if not selected_regions:
         st.info("Select at least one region.")
@@ -321,24 +369,48 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
     )
     show_points = display_mode in {"Points + centroid trajectories", "Points only"}
     show_centroids = display_mode in {"Points + centroid trajectories", "Centroids only"}
+    plot_points_df = history_df if animate_epochs else points_df
 
-    if show_points and not points_df.empty:
+    if show_points and not plot_points_df.empty:
+        scatter_kwargs = {
+            "data_frame": plot_points_df,
+            "x": "pc1",
+            "y": "pc2",
+            "z": "pc3",
+            "color": "region",
+            "color_discrete_map": REGION_COLORS,
+            "category_orders": {"region": all_regions},
+            "hover_data": {
+                "case_id": True,
+                "epoch": True,
+                "feature_coord": True,
+                "spatial_shape": True,
+                "point_id": False,
+            },
+            "custom_data": [
+                "point_id",
+                "case_id",
+                "epoch",
+                "region",
+                "feature_coord",
+                "spatial_shape",
+            ],
+            "title": title,
+            "opacity": 0.7,
+        }
+        if animate_epochs:
+            scatter_kwargs["animation_frame"] = "epoch_label"
+            scatter_kwargs["animation_group"] = "point_id"
         fig = px.scatter_3d(
-            points_df,
-            x="pc1",
-            y="pc2",
-            z="pc3",
-            color="region",
-            color_discrete_map=REGION_COLORS,
-            category_orders={"region": all_regions},
-            hover_data=["case_id", "epoch", "coord"],
-            title=title,
-            opacity=0.7,
+            **scatter_kwargs,
         )
         fig.update_traces(marker={"size": 5})
     else:
         fig = go.Figure()
         fig.update_layout(title=title)
+
+    if surface_mode != "None":
+        _add_region_surface_traces(fig, go, points_df, surface_regions, surface_mode)
 
     if show_centroids:
         _add_centroid_traces(fig, go, centroid_df, selected_regions, show_legend=not show_points)
@@ -354,7 +426,18 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
         legend_title_text="region",
     )
     with plot_area:
-        _plotly_chart(st, fig)
+        selection_event = _plotly_chart(
+            st,
+            fig,
+            key="feature_space_3d",
+            selection_mode="points" if show_points else None,
+        )
+        st.download_button(
+            "Export 3D HTML",
+            data=fig.to_html(include_plotlyjs="cdn", full_html=True),
+            file_name=_feature_space_html_name(layer, focus_epoch, region_preset),
+            mime="text/html",
+        )
         summary = (
             history_df.groupby(["epoch", "region"])
             .size()
@@ -364,6 +447,17 @@ def _render_feature_space(st: object, px: object, run_path: Path, current_case_i
         _dataframe(st, summary)
 
     with metrics_area:
+        st.subheader("Point Detail")
+        selected_point_id = _selected_point_id(selection_event)
+        if selected_point_id is None:
+            st.info("Click a point in the 3D plot to inspect its source location.")
+        else:
+            selected_rows = df[df["point_id"] == selected_point_id]
+            if selected_rows.empty:
+                st.info("Selected point is no longer visible after filtering.")
+            else:
+                _render_feature_point_detail(st, run_path, selected_rows.iloc[0])
+
         st.subheader("Separation")
         metrics = _feature_separation_metrics(history_df, focus_epoch)
         if metrics.empty:
@@ -570,6 +664,21 @@ def _ordered_regions(regions: object) -> list[str]:
     return ordered
 
 
+def _default_regions_for_preset(all_regions: list[str], preset: str) -> list[str]:
+    preferred = REGION_PRESETS.get(preset, tuple(all_regions))
+    selected = [region for region in preferred if region in all_regions]
+    return selected or list(all_regions)
+
+
+def _nearest_epoch(available_epochs: list[int], requested_epoch: int) -> int:
+    if not available_epochs:
+        raise ValueError("available_epochs must not be empty")
+    return min(
+        available_epochs,
+        key=lambda epoch: (abs(int(epoch) - int(requested_epoch)), int(epoch)),
+    )
+
+
 def _centroid_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["epoch", "region", "pc1", "pc2", "pc3", "samples"])
@@ -616,6 +725,60 @@ def _add_centroid_traces(
                 customdata=region_df[["region", "epoch", "samples"]].to_numpy(),
             )
         )
+
+
+def _add_region_surface_traces(
+    fig: object,
+    go: object,
+    df: pd.DataFrame,
+    regions: list[str],
+    surface_mode: str,
+) -> None:
+    for region in regions:
+        region_df = df[df["region"] == region]
+        points = region_df[["pc1", "pc2", "pc3"]].dropna().to_numpy(dtype=np.float64)
+        if points.shape[0] < 4 or np.linalg.matrix_rank(points - points.mean(axis=0)) < 3:
+            continue
+
+        color = REGION_COLORS.get(region, "#666666")
+        trace_kwargs = {
+            "x": points[:, 0],
+            "y": points[:, 1],
+            "z": points[:, 2],
+            "name": f"{region} {surface_mode.lower()}",
+            "color": color,
+            "opacity": 0.14 if surface_mode == "Convex hull" else 0.10,
+            "showlegend": True,
+            "hoverinfo": "skip",
+        }
+        if surface_mode == "Convex hull":
+            simplices = _convex_hull_simplices(points)
+            if simplices.size == 0:
+                continue
+            trace_kwargs.update(
+                {
+                    "i": simplices[:, 0],
+                    "j": simplices[:, 1],
+                    "k": simplices[:, 2],
+                    "flatshading": True,
+                }
+            )
+        else:
+            trace_kwargs["alphahull"] = 4
+        fig.add_trace(go.Mesh3d(**trace_kwargs))
+
+
+def _convex_hull_simplices(points: np.ndarray) -> np.ndarray:
+    try:
+        from scipy.spatial import ConvexHull, QhullError
+    except Exception:
+        return np.zeros((0, 3), dtype=np.int32)
+
+    try:
+        hull = ConvexHull(points)
+    except (QhullError, ValueError):
+        return np.zeros((0, 3), dtype=np.int32)
+    return np.asarray(hull.simplices, dtype=np.int32)
 
 
 def _feature_separation_metrics(df: pd.DataFrame, epoch: int) -> pd.DataFrame:
@@ -682,11 +845,26 @@ def _feature_sample_counts(features: np.lib.npyio.NpzFile) -> list[dict[str, obj
     return rows
 
 
-def _plotly_chart(st: object, fig: object) -> None:
+def _plotly_chart(
+    st: object,
+    fig: object,
+    key: str | None = None,
+    selection_mode: str | None = None,
+) -> object:
+    extra_kwargs = {"key": key} if key else {}
+    if selection_mode:
+        extra_kwargs.update({"on_select": "rerun", "selection_mode": selection_mode})
     try:
-        st.plotly_chart(fig, width="stretch")
+        return st.plotly_chart(fig, width="stretch", **extra_kwargs)
     except TypeError:
-        st.plotly_chart(fig, use_container_width=True)
+        try:
+            return st.plotly_chart(fig, use_container_width=True, **extra_kwargs)
+        except TypeError:
+            fallback_kwargs = {"key": key} if key else {}
+            try:
+                return st.plotly_chart(fig, width="stretch", **fallback_kwargs)
+            except TypeError:
+                return st.plotly_chart(fig, use_container_width=True, **fallback_kwargs)
 
 
 def _dataframe(st: object, df: pd.DataFrame) -> None:
@@ -694,6 +872,120 @@ def _dataframe(st: object, df: pd.DataFrame) -> None:
         st.dataframe(df, width="stretch")
     except TypeError:
         st.dataframe(df, use_container_width=True)
+
+
+def _selected_point_id(selection_event: object) -> int | None:
+    if selection_event is None:
+        return None
+    selection = _get_event_value(selection_event, "selection")
+    points = _get_event_value(selection, "points") if selection is not None else None
+    if not points:
+        return None
+    point = points[0]
+    customdata = _get_event_value(point, "customdata")
+    if customdata is None:
+        customdata = _get_event_value(point, "custom_data")
+    if customdata is None:
+        point_index = _get_event_value(point, "point_index")
+        return int(point_index) if point_index is not None else None
+    if isinstance(customdata, np.ndarray):
+        customdata = customdata.tolist()
+    if isinstance(customdata, (list, tuple)) and customdata:
+        return int(customdata[0])
+    return int(customdata)
+
+
+def _get_event_value(source: object, key: str) -> object | None:
+    if source is None:
+        return None
+    if isinstance(source, dict):
+        return source.get(key)
+    return getattr(source, key, None)
+
+
+def _render_feature_point_detail(st: object, run_path: Path, row: pd.Series) -> None:
+    case_id = str(row["case_id"])
+    feature_coord = tuple(row["feature_coord_values"])
+    spatial_shape = tuple(row["spatial_shape_values"])
+    image_path = run_path / "cases" / sanitize_id(case_id) / "image.npy"
+    image_coord: tuple[int, ...] | None = None
+    image_preview = None
+
+    if image_path.exists():
+        image = load_array(image_path)
+        image_coord = _feature_coord_to_image_coord(feature_coord, spatial_shape, image.shape)
+        if image_coord is not None:
+            image_preview = _point_overlay(image, image_coord)
+
+    detail = pd.DataFrame(
+        [
+            {"field": "layer", "value": row["layer"]},
+            {"field": "case_id", "value": case_id},
+            {"field": "epoch", "value": int(row["epoch"])},
+            {"field": "region", "value": row["region"]},
+            {"field": "feature_coord", "value": row["feature_coord"]},
+            {"field": "feature_shape", "value": row["spatial_shape"]},
+            {
+                "field": "image_coord",
+                "value": _format_coord(image_coord) if image_coord is not None else "unavailable",
+            },
+        ]
+    )
+    _dataframe(st, detail)
+    if image_preview is not None:
+        st.image(image_preview, caption="Selected feature location", clamp=True)
+
+
+def _feature_coord_to_image_coord(
+    feature_coord: tuple[int, ...],
+    spatial_shape: tuple[int, ...],
+    image_shape: tuple[int, ...],
+) -> tuple[int, ...] | None:
+    image_spatial_shape = _image_spatial_shape(image_shape)
+    dims = min(len(feature_coord), len(spatial_shape), len(image_spatial_shape))
+    if dims == 0:
+        return None
+    coord = np.asarray(feature_coord[:dims], dtype=np.float64)
+    source_shape = np.maximum(np.asarray(spatial_shape[:dims], dtype=np.float64), 1.0)
+    target_shape = np.asarray(image_spatial_shape[:dims], dtype=np.float64)
+    image_coord = np.floor((coord + 0.5) * target_shape / source_shape).astype(np.int64)
+    image_coord = np.clip(image_coord, 0, target_shape.astype(np.int64) - 1)
+    return tuple(int(value) for value in image_coord)
+
+
+def _image_spatial_shape(image_shape: tuple[int, ...]) -> tuple[int, ...]:
+    if len(image_shape) == 3 and image_shape[-1] in {3, 4}:
+        return tuple(int(value) for value in image_shape[:2])
+    return tuple(int(value) for value in image_shape)
+
+
+def _point_overlay(image: np.ndarray, image_coord: tuple[int, ...]) -> np.ndarray | None:
+    base = _rgb_base(image)
+    if base.ndim != 3 or len(image_coord) < 2:
+        return None
+    y, x = int(image_coord[0]), int(image_coord[1])
+    height, width = base.shape[:2]
+    if not (0 <= y < height and 0 <= x < width):
+        return None
+    radius = max(3, min(height, width) // 40)
+    color = np.asarray([1.0, 0.1, 0.85], dtype=np.float32)
+    y0, y1 = max(0, y - radius), min(height, y + radius + 1)
+    x0, x1 = max(0, x - radius), min(width, x + radius + 1)
+    base[y0:y1, x] = color
+    base[y, x0:x1] = color
+    return base
+
+
+def _format_coord(coord: tuple[int, ...] | None) -> str:
+    if coord is None:
+        return "unavailable"
+    return ",".join(str(int(value)) for value in coord)
+
+
+def _feature_space_html_name(layer: str, epoch: int, region_preset: str) -> str:
+    safe_layer = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in layer)
+    safe_preset = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in region_preset)
+    return f"segevo_feature_space_{safe_layer}_epoch{int(epoch):04d}_{safe_preset}.html"
 
 
 def _projection_dataframe(projection: object) -> pd.DataFrame:
@@ -709,8 +1001,16 @@ def _projection_dataframe(projection: object) -> pd.DataFrame:
         ",".join(str(int(value)) for value in row)
         for row in np.asarray(projection.feature_coords)
     ]
+    feature_coord_values = [tuple(int(value) for value in row) for row in projection.feature_coords]
+    spatial_shapes = getattr(projection, "feature_spatial_shapes", None)
+    if spatial_shapes is None:
+        spatial_shapes = np.zeros_like(np.asarray(projection.feature_coords))
+    spatial_shape_values = [tuple(int(value) for value in row) for row in spatial_shapes]
+    spatial_shape_labels = [_format_coord(values) for values in spatial_shape_values]
     return pd.DataFrame(
         {
+            "point_id": np.arange(len(projection.x), dtype=np.int64),
+            "layer": projection.layer,
             "pc1": projection.x,
             "pc2": projection.y,
             "pc3": projection.z,
@@ -719,5 +1019,9 @@ def _projection_dataframe(projection: object) -> pd.DataFrame:
             "epoch": projection.epochs,
             "epoch_label": projection.epochs.astype(str),
             "coord": coords,
+            "feature_coord": coords,
+            "feature_coord_values": feature_coord_values,
+            "spatial_shape": spatial_shape_labels,
+            "spatial_shape_values": spatial_shape_values,
         }
     )

@@ -19,6 +19,7 @@ class FeatureSpace:
     case_ids: np.ndarray
     epochs: np.ndarray
     coords: np.ndarray
+    spatial_shapes: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class FeatureProjection:
     epochs: np.ndarray
     feature_coords: np.ndarray
     explained_variance_ratio: tuple[float, ...]
+    feature_spatial_shapes: np.ndarray | None = None
 
 
 def available_feature_layers(run_dir: str | Path) -> list[str]:
@@ -67,6 +69,7 @@ def load_feature_space(
     case_ids: list[np.ndarray] = []
     epoch_ids: list[np.ndarray] = []
     coords_by_file: list[np.ndarray] = []
+    spatial_shapes_by_file: list[np.ndarray] = []
     region_names: tuple[str, ...] = ()
 
     for case_id in selected_cases:
@@ -81,11 +84,13 @@ def load_feature_space(
                 sample_key = f"{layer}__samples"
                 region_key = f"{layer}__sample_region_ids"
                 coord_key = f"{layer}__sample_coords"
+                shape_key = f"{layer}__sample_spatial_shape"
                 if sample_key not in payload.files or region_key not in payload.files:
                     continue
                 features = np.asarray(payload[sample_key], dtype=np.float32)
                 region_ids = np.asarray(payload[region_key], dtype=np.int16)
                 coords = _load_coords(payload, coord_key, features.shape[0])
+                spatial_shape = _load_spatial_shape(payload, shape_key, coords)
                 if features.size == 0 or region_ids.size == 0:
                     continue
                 if not region_names and "feature_region_names" in payload.files:
@@ -95,6 +100,9 @@ def load_feature_space(
             features_by_file.append(features)
             region_ids_by_file.append(region_ids)
             coords_by_file.append(coords)
+            spatial_shapes_by_file.append(
+                np.repeat(spatial_shape[None, :], features.shape[0], axis=0)
+            )
             case_ids.append(np.asarray([case_id] * features.shape[0], dtype=object))
             epoch_ids.append(np.full(features.shape[0], int(epoch), dtype=np.int32))
 
@@ -107,6 +115,7 @@ def load_feature_space(
             case_ids=np.zeros((0,), dtype=object),
             epochs=np.zeros((0,), dtype=np.int32),
             coords=np.zeros((0, 0), dtype=np.int32),
+            spatial_shapes=np.zeros((0, 0), dtype=np.int32),
         )
 
     feature_space = FeatureSpace(
@@ -117,6 +126,7 @@ def load_feature_space(
         case_ids=np.concatenate(case_ids, axis=0),
         epochs=np.concatenate(epoch_ids, axis=0),
         coords=np.concatenate(coords_by_file, axis=0),
+        spatial_shapes=np.concatenate(spatial_shapes_by_file, axis=0),
     )
     if max_points is not None and feature_space.features.shape[0] > max_points:
         return downsample_feature_space(feature_space, max_points=max_points, seed=seed)
@@ -136,6 +146,7 @@ def project_feature_space(feature_space: FeatureSpace) -> FeatureProjection:
         epochs=feature_space.epochs,
         feature_coords=feature_space.coords,
         explained_variance_ratio=explained,
+        feature_spatial_shapes=feature_space.spatial_shapes,
     )
 
 
@@ -161,6 +172,11 @@ def downsample_feature_space(
         case_ids=feature_space.case_ids[keep],
         epochs=feature_space.epochs[keep],
         coords=feature_space.coords[keep],
+        spatial_shapes=(
+            feature_space.spatial_shapes[keep]
+            if feature_space.spatial_shapes is not None
+            else None
+        ),
     )
 
 
@@ -255,3 +271,19 @@ def _load_coords(payload: np.lib.npyio.NpzFile, key: str, count: int) -> np.ndar
     if key in payload.files:
         return np.asarray(payload[key], dtype=np.int32)
     return np.zeros((count, 0), dtype=np.int32)
+
+
+def _load_spatial_shape(
+    payload: np.lib.npyio.NpzFile,
+    key: str,
+    coords: np.ndarray,
+) -> np.ndarray:
+    if key in payload.files:
+        shape = np.asarray(payload[key], dtype=np.int32).ravel()
+        if shape.size > 0:
+            return shape
+    if coords.ndim != 2:
+        return np.zeros((0,), dtype=np.int32)
+    if coords.size == 0:
+        return np.zeros((coords.shape[1],), dtype=np.int32)
+    return np.maximum(coords.max(axis=0) + 1, 1).astype(np.int32, copy=False)

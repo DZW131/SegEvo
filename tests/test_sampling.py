@@ -38,8 +38,8 @@ def test_sample_feature_regions_returns_vectors_labels_and_coords():
     assert samples is not None
     assert samples.features.shape[1] == 2
     assert samples.coords.shape[1] == 2
+    assert samples.spatial_shape.tolist() == [8, 8]
     assert samples.features.shape[0] == samples.region_ids.shape[0] == samples.coords.shape[0]
     assert set(samples.region_ids.tolist()).issubset(set(range(len(REGION_NAMES))))
     for region_id in np.unique(samples.region_ids):
         assert np.count_nonzero(samples.region_ids == region_id) <= 3
-

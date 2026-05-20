@@ -23,6 +23,7 @@ class FeatureSamples:
     features: np.ndarray
     region_ids: np.ndarray
     coords: np.ndarray
+    spatial_shape: np.ndarray
 
 
 def sample_feature_regions(
@@ -74,12 +75,14 @@ def sample_feature_regions(
             features=np.zeros((0, feature_cf.shape[0]), dtype=np.float32),
             region_ids=np.zeros((0,), dtype=np.int16),
             coords=np.zeros((0, len(spatial_shape)), dtype=np.int32),
+            spatial_shape=np.asarray(spatial_shape, dtype=np.int32),
         )
 
     return FeatureSamples(
         features=np.concatenate(sampled_features, axis=0),
         region_ids=np.concatenate(sampled_region_ids, axis=0),
         coords=np.concatenate(sampled_coords, axis=0),
+        spatial_shape=np.asarray(spatial_shape, dtype=np.int32),
     )
 
 

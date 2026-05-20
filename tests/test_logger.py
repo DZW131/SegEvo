@@ -51,4 +51,5 @@ def test_logger_samples_spatial_features(tmp_path):
         assert "manual_layer__samples" in features.files
         assert "manual_layer__sample_region_ids" in features.files
         assert "manual_layer__sample_coords" in features.files
+        assert "manual_layer__sample_spatial_shape" in features.files
         assert features["manual_layer__samples"].shape[1] == 3

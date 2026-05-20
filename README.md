@@ -60,9 +60,10 @@ The dashboard currently has three main tabs:
 
 - `Case Timeline`: image, GT, prediction, FP/FN error map, metrics, and feature
   sample counts for the selected case and epoch.
-- `Feature Space`: stable 3D PCA projection of sampled layer features, with an epoch
-  slider, region filters, centroid trajectories, and separation metrics for
-  foreground, boundary, hard background, FP, and FN.
+- `Feature Space`: stable 3D PCA projection of sampled layer features, synced to the
+  sidebar epoch, with region presets, FP/FN focus mode, centroid playback, optional
+  convex hull or density surfaces, point-level source-location inspection, HTML
+  export, and separation metrics.
 - `Boundary Learning`: boundary Dice, surface Dice, HD95, and boundary feature
   separation trends for selected cases and layers.
 
@@ -197,8 +198,9 @@ The five sampled regions are `foreground`, `boundary`, `hard_background`,
   feature vectors.
 - Feature sampling for foreground, boundary, hard background, FP, and FN pixels or
   voxels.
-- Feature Space dashboard tab with stable 3D PCA projection, epoch slider, region
-  filters, centroid trajectories, and separation metrics.
+- Feature Space dashboard tab with stable 3D PCA projection, sidebar-synced epoch
+  focus, region presets, FP/FN focus mode, centroid playback, optional convex hull
+  or density surfaces, point inspection, HTML export, and separation metrics.
 - Boundary Learning dashboard tab with boundary metrics and boundary-vs-background
   feature separation.
 

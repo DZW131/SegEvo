@@ -213,6 +213,7 @@ def _sample_payload(name: str, samples: FeatureSamples) -> dict[str, np.ndarray]
         f"{name}__samples": samples.features,
         f"{name}__sample_region_ids": samples.region_ids,
         f"{name}__sample_coords": samples.coords,
+        f"{name}__sample_spatial_shape": samples.spatial_shape,
     }
 
 
