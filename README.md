@@ -16,6 +16,13 @@ models, WSI tile segmentation models, or custom CNN/Transformer segmentation mod
 as long as your training loop can provide image, ground truth, prediction, and
 optionally intermediate features.
 
+## Demo Video
+
+https://github.com/user-attachments/assets/869d7d83-a646-448b-b71c-8e0e5c1dde7c
+
+The demo walks through the SegEvo dashboard, including case-level training evolution,
+3D feature-space analysis, and boundary-learning diagnostics.
+
 ## Dashboard Preview
 
 ![SegEvo 3D feature-space dashboard](docs/assets/feature-space-3d-preview.png)
