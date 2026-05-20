@@ -16,6 +16,13 @@ models, WSI tile segmentation models, or custom CNN/Transformer segmentation mod
 as long as your training loop can provide image, ground truth, prediction, and
 optionally intermediate features.
 
+## Dashboard Preview
+
+![SegEvo 3D feature-space dashboard](docs/assets/feature-space-3d-preview.png)
+
+The 3D Feature Space view shows how foreground, boundary, hard background, false
+positive, and false negative feature samples move and separate across epochs.
+
 ## Why SegEvo
 
 Final Dice or HD95 tells you what happened at the end of training. It often does not
