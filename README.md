@@ -4,128 +4,176 @@
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-中文定位：一个面向医学影像分割的训练动态可视化工具，用于追踪预测 mask、错误区域、中间特征、边界表征、注意力/不确定性在训练过程中的演化。
+SegEvo is a lightweight, model-agnostic observability tool for medical image
+segmentation training. It records a small set of fixed probe cases across epochs and
+turns them into an interactive dashboard for understanding how a model learns, where
+it fails, and whether its internal feature representation is becoming more stable.
 
-SegEvo is an open-source research tool for observing how medical image segmentation
-models learn during training. It records fixed probe cases across epochs and replays
-the evolution of predictions, error regions, metrics, and sampled intermediate
-representations in a lightweight dashboard.
-
-The project is intentionally a low-intrusion observation layer, not a new training
-framework. A typical PyTorch segmentation workflow should only need a few lines to
-write SegEvo artifacts.
+SegEvo is not a new training framework. It is an observation layer that can be added
+to ordinary PyTorch segmentation projects with a few logging calls. It can be used
+with U-Net, nnU-Net-style code, UNETR/SwinUNETR, DeepLab-like models, MedNeXt-style
+models, WSI tile segmentation models, or custom CNN/Transformer segmentation models,
+as long as your training loop can provide image, ground truth, prediction, and
+optionally intermediate features.
 
 ## Why SegEvo
 
-Segmentation quality is usually summarized by final Dice, HD95, or surface Dice. SegEvo
-focuses on the process:
+Final Dice or HD95 tells you what happened at the end of training. It often does not
+tell you how the model got there.
 
-- When does the model move from coarse localization to boundary refinement?
-- Which cases remain unstable or repeatedly forgotten during training?
-- Are false positives and false negatives visible early in feature space?
-- Do boundary and hard-background representations separate over time?
+SegEvo helps answer questions such as:
 
-## Quick Start
+- Did a probe case improve smoothly, or did it repeatedly regress during training?
+- Are the remaining errors mostly false positives, false negatives, or boundary shifts?
+- Did boundary quality really improve, or did Dice hide edge errors?
+- Are foreground, boundary, hard background, FP, and FN features separating over time?
+- Which logged layer gives the clearest diagnostic signal?
+- Is a model learning a stable representation, or only fitting easy regions?
+
+This is especially useful for medical segmentation research, where small objects,
+uncertain boundaries, hard negative tissue, scanner/domain shifts, and sparse validation
+cases can make final aggregate metrics misleading.
+
+## What You Get
+
+Run the bundled demo and open the dashboard:
 
 ```bash
-git clone https://github.com/DZW131/SegEvo.git
-cd SegEvo
-pip install -e ".[dashboard]"
-
 segevo-demo --out runs/demo
 segevo-dashboard --run runs/demo --host 0.0.0.0 --port 7860
 ```
 
-On a remote server, forward the port from your local machine:
+The dashboard has three main pages:
+
+| Page | What it shows | What you can learn |
+| --- | --- | --- |
+| `Case Timeline` | Image + GT, image + prediction, FP/FN error map, metric timeline, and current-epoch training readout. | Whether a fixed probe case is improving, whether errors are mostly FP or FN, and whether visual quality matches metric improvement. |
+| `Feature Space` | Stable 3D PCA projection of sampled layer features, region presets, FP/FN focus mode, centroid trajectories, epoch playback, optional convex hull or density surfaces, point inspection, and HTML export. | Whether the model's internal representation is organizing foreground, boundary, hard background, FP, and FN into meaningful groups. |
+| `Boundary Learning` | Boundary Dice, surface Dice, HD95, boundary feature separation, and a boundary training readout. | Whether the model is learning usable boundaries instead of only coarse mask overlap. |
+
+Each page includes an expanded bilingual usage guide in the app explaining the controls,
+how to read the plots, and what training signals can be inferred from them.
+
+## Installation
+
+SegEvo requires Python 3.10 or newer.
+
+### Option A: virtualenv
 
 ```bash
-ssh -L 7860:localhost:7860 user@server
+git clone https://github.com/DZW131/SegEvo.git
+cd SegEvo
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[dashboard]"
 ```
 
-Then open `http://localhost:7860`.
+### Option B: conda
 
-If you are installing on an older Linux research server, upgrade packaging tools
-first so pip can use prebuilt wheels:
+```bash
+git clone https://github.com/DZW131/SegEvo.git
+cd SegEvo
+conda create -n segevo python=3.10 -y
+conda activate segevo
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[dashboard]"
+```
+
+### PyTorch projects
+
+If your training project already has PyTorch installed, you can install only the
+dashboard extra:
+
+```bash
+python -m pip install -e ".[dashboard]"
+```
+
+If you want to run the bundled PyTorch example, install:
+
+```bash
+python -m pip install -e ".[torch,dashboard]"
+```
+
+For GPU training, install the PyTorch build that matches your CUDA/runtime environment
+using the official PyTorch instructions, then install SegEvo in the same environment.
+
+### Older Linux servers
+
+On older research servers, upgrade packaging tools first so pip can use prebuilt wheels:
 
 ```bash
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -e ".[dashboard]"
 ```
 
-SegEvo pins the dashboard `pyarrow` dependency below `21` because newer wheels can
-fall back to source builds on older glibc systems, which may fail with Rust/C++
-compiler errors.
+SegEvo constrains the dashboard `pyarrow` dependency to avoid source builds on older
+glibc systems where modern binary wheels may be unavailable.
 
-The dashboard currently has three main tabs:
-
-- `Case Timeline`: image, GT, prediction, FP/FN error map, metrics, and feature
-  sample counts for the selected case and epoch.
-- `Feature Space`: stable 3D PCA projection of sampled layer features, synced to the
-  sidebar epoch, with region presets, FP/FN focus mode, centroid playback, optional
-  convex hull or density surfaces, point-level source-location inspection, HTML
-  export, and separation metrics.
-- `Boundary Learning`: boundary Dice, surface Dice, HD95, and boundary feature
-  separation trends for selected cases and layers.
-
-## PyTorch U-Net Example
-
-SegEvo includes a real PyTorch training example with a tiny U-Net and a synthetic
-lesion-like dataset. It is intentionally small enough to run on CPU, but it follows
-the same pattern as a normal segmentation project:
+## Quick Start
 
 ```bash
-pip install -e ".[torch,dashboard]"
-python examples/pytorch_unet_training.py --epochs 3 --run-dir runs/pytorch_unet
-segevo-dashboard --run runs/pytorch_unet --host 0.0.0.0 --port 7860
+git clone https://github.com/DZW131/SegEvo.git
+cd SegEvo
+python -m pip install -e ".[dashboard]"
+
+segevo-demo --out runs/demo
+segevo-dashboard --run runs/demo --host 0.0.0.0 --port 7860
 ```
 
-For pathology tile segmentation with `milesial/Pytorch-UNet`, see
-[docs/pathology_unet_milesial.md](docs/pathology_unet_milesial.md).
+Open:
 
-The SegEvo-specific integration is only these steps:
-
-```python
-logger = SegEvoLogger(run_dir="runs/pytorch_unet", manifest={...})
-logger.attach(model, layers=["enc2", "bottleneck", "dec1"])
-
-# inside validation or probe-case logging
-logger.log_case(
-    epoch=epoch,
-    case_id=case_id,
-    image=image,
-    gt=gt,
-    pred=pred,
-    uncertainty=uncertainty,
-    metrics={"train_loss": train_loss, "probe_dice": probe_dice},
-)
+```text
+http://localhost:7860
 ```
 
-## Minimal Training Integration
+On a remote server, start the dashboard on the server and forward the port from your
+local machine:
 
-For the first version, the most stable API is explicit logging. You can use it from
-any training loop as long as you can provide image, ground truth, and prediction arrays.
+```bash
+ssh -L 7860:localhost:7860 user@server
+```
+
+Then open `http://localhost:7860` locally.
+
+## Use SegEvo In Your Own Training Project
+
+The recommended workflow is:
+
+1. Pick a small set of fixed probe cases from validation data.
+2. Log those same cases every few epochs.
+3. Attach optional PyTorch layers if you want feature-space and boundary-representation
+   analysis.
+4. Open the dashboard while training is running or after training finishes.
+
+### Minimal explicit logging
+
+This works with any segmentation model or framework as long as you can provide NumPy-like
+arrays for image, ground truth, and prediction.
 
 ```python
 from segevo import SegEvoLogger
 
 logger = SegEvoLogger(
-    run_dir="runs/liver_unet",
+    run_dir="runs/my_segmentation_model",
     manifest={
-        "project": "liver_unet",
-        "task": "binary_liver_segmentation",
-        "classes": ["background", "liver"],
-        "spacing": [1.0, 1.0, 1.0],
+        "project": "my_segmentation_model",
+        "task": "binary_lesion_segmentation",
+        "model": "MyModel",
+        "classes": ["background", "lesion"],
+        "spacing": [1.0, 1.0, 1.0],  # optional, useful for HD95/surface metrics
     },
 )
 
 for epoch in range(num_epochs):
     train_one_epoch(...)
-    metrics = validate(...)
+    validation_metrics = validate(...)
 
     if epoch % 5 == 0:
-        for case in probe_cases:
-            image, gt = case["image"], case["mask"]
-            pred = infer(model, image)
+        for case in fixed_probe_cases:
+            image = case["image"]
+            gt = case["mask"]
+            pred = infer_binary_mask(model, image)
 
             logger.log_case(
                 epoch=epoch,
@@ -133,25 +181,78 @@ for epoch in range(num_epochs):
                 image=image,
                 gt=gt,
                 pred=pred,
-                metrics={"val_dice": metrics["dice"]},
+                metrics={"val_dice": validation_metrics["dice"]},
             )
 ```
 
-If you want to record layer summaries from a PyTorch model:
+### PyTorch feature hooks
+
+For PyTorch models, attach named modules before inference. SegEvo will store compact
+activation summaries and region-sampled feature vectors.
 
 ```python
-logger.attach(model, layers=["encoder.3", "bottleneck", "decoder.2"])
+logger.attach(
+    model,
+    layers=[
+        "encoder.stage2",
+        "bottleneck",
+        "decoder.stage1",
+    ],
+)
 ```
 
-The first MVP stores compact feature statistics by default. Dense feature-volume
-storage is deliberately avoided because 3D medical data can become very large.
+The layer names come from:
+
+```python
+for name, _module in model.named_modules():
+    print(name)
+```
+
+During `logger.log_case(...)`, SegEvo samples features from:
+
+- `foreground`
+- `boundary`
+- `hard_background`
+- `false_positive`
+- `false_negative`
+
+Those samples drive the `Feature Space` and `Boundary Learning` pages.
+
+### PyTorch example
+
+SegEvo includes a small CPU-friendly PyTorch U-Net example:
+
+```bash
+python -m pip install -e ".[torch,dashboard]"
+python examples/pytorch_unet_training.py --epochs 3 --run-dir runs/pytorch_unet
+segevo-dashboard --run runs/pytorch_unet --host 0.0.0.0 --port 7860
+```
+
+For adapting SegEvo to a real PyTorch training script, see:
+
+[docs/pytorch_integration.md](docs/pytorch_integration.md)
+
+## Data And Model Compatibility
+
+Current scope:
+
+- 2D and 3D binary segmentation masks.
+- CT, MR, ultrasound, pathology tiles, microscopy tiles, or any image-like array saved
+  as NumPy-compatible data.
+- Any PyTorch segmentation architecture with `named_modules()` and forward hooks.
+- Non-PyTorch workflows through explicit `logger.log_case(...)` calls.
+
+For multiclass segmentation, the current practical approach is to log one target class
+at a time as a binary foreground-vs-background mask, or log the clinically important
+class first. Native multiclass dashboards are a future extension.
 
 ## Artifact Layout
 
-SegEvo dashboards read a run directory and do not depend on the training script.
+SegEvo writes a local run directory. The dashboard only reads this directory; it does
+not need to import or rerun your training code.
 
 ```text
-runs/liver_unet/
+runs/my_segmentation_model/
   manifest.json
   metrics.csv
   cases/
@@ -162,10 +263,12 @@ runs/liver_unet/
         0000/
           pred.npy
           error.npy
+          uncertainty.npy
           features.npz
         0005/
           pred.npy
           error.npy
+          features.npz
 ```
 
 `error.npy` uses compact integer labels:
@@ -176,51 +279,87 @@ runs/liver_unet/
 - `3`: false negative
 
 `features.npz` stores compact layer data. For a logged layer such as `bottleneck`,
-the current schema writes:
+the schema includes:
 
-- `bottleneck__summary`: mean, standard deviation, minimum, and maximum activation.
+- `bottleneck__summary`: activation mean, standard deviation, minimum, and maximum.
 - `bottleneck__samples`: sampled feature vectors with shape `[N, C]`.
-- `bottleneck__sample_region_ids`: integer region labels for each sampled vector.
-- `bottleneck__sample_coords`: feature-map coordinates for each sampled vector.
-- `feature_region_names`: region-id names in order.
+- `bottleneck__sample_region_ids`: integer region labels for sampled vectors.
+- `bottleneck__sample_coords`: feature-map coordinates for sampled vectors.
+- `bottleneck__sample_spatial_shape`: spatial shape of the sampled feature map.
+- `feature_region_names`: region-id names.
 
-The five sampled regions are `foreground`, `boundary`, `hard_background`,
-`false_positive`, and `false_negative`.
+SegEvo intentionally avoids storing dense feature volumes by default because 3D medical
+images can produce very large artifacts.
 
-## Current MVP Scope
+## Privacy And Data Safety
 
-- Run format with `manifest.json`, `metrics.csv`, and per-case epoch artifacts.
-- Explicit case logging for 2D and 3D binary segmentation masks.
-- Dice, volume error, HD95, and surface Dice helpers.
-- Synthetic demo run generator.
-- Streamlit dashboard for case timeline, slice viewer, error overlay, and metric curves.
-- Optional PyTorch forward hooks for compact layer activation summaries and sampled
-  feature vectors.
-- Feature sampling for foreground, boundary, hard background, FP, and FN pixels or
-  voxels.
-- Feature Space dashboard tab with stable 3D PCA projection, sidebar-synced epoch
-  focus, region presets, FP/FN focus mode, centroid playback, optional convex hull
-  or density surfaces, point inspection, HTML export, and separation metrics.
-- Boundary Learning dashboard tab with boundary metrics and boundary-vs-background
-  feature separation.
+- SegEvo writes artifacts to local disk under the run directory you choose.
+- The package does not include data-upload code or require an external service.
+- The dashboard reads local artifacts and renders them in Streamlit.
+- Do not open public issues with patient images, raw private data, access tokens,
+  server IPs, or private filesystem paths. Use synthetic data or anonymized snippets
+  when reporting bugs.
 
-## Roadmap
+## Repository Contents
 
-- UMAP feature-space replay across epochs and layers.
-- Failure explorer for unstable, forgotten, and persistently wrong cases.
-- More PyTorch examples for common 2D and 3D segmentation loops.
-- Uncertainty and attention/Grad-CAM artifact conventions.
+```text
+src/segevo/                 # package code
+examples/minimal_logging.py # framework-agnostic explicit logging example
+examples/pytorch_unet_training.py
+docs/pytorch_integration.md # generic PyTorch integration guide
+tests/                      # unit tests and smoke tests
+.github/workflows/ci.yml    # lint/test CI
+```
+
+Generated runs, local environments, caches, logs, and `.env` files are ignored by git.
 
 ## Development
 
 ```bash
-pip install -e ".[dashboard,dev]"
-pytest
-ruff check .
+python -m pip install -e ".[dashboard,dev]"
+python -m ruff check .
+python -m pytest -q
 ```
 
-GitHub Actions runs linting, unit tests, and a tiny PyTorch U-Net smoke test on
-every push and pull request.
+To run the PyTorch smoke example locally:
 
-If you are working on a server without browser access, generate a demo run and start
-the dashboard on `0.0.0.0`, then use SSH port forwarding as shown above.
+```bash
+python -m pip install -e ".[torch,dashboard,dev]"
+python examples/pytorch_unet_training.py --epochs 1 --run-dir runs/local_smoke
+```
+
+GitHub Actions runs linting, compilation, unit tests, and a tiny PyTorch U-Net smoke
+test on every push and pull request.
+
+## Contributing And Issues
+
+Issues and pull requests are welcome. Helpful issue reports usually include:
+
+- Operating system and Python version.
+- SegEvo commit or release version.
+- Installation command.
+- Dashboard command.
+- A minimal synthetic or anonymized run directory structure.
+- Error traceback or screenshots, with private data removed.
+
+Good first contribution areas:
+
+- More integration examples for 2D/3D medical segmentation projects.
+- Native multiclass segmentation support.
+- Additional feature-space projections such as UMAP.
+- Failure explorer for unstable or forgotten probe cases.
+- Better export formats for reports and papers.
+
+## Limitations
+
+SegEvo is currently an MVP research tool. The main limitations are:
+
+- Binary segmentation is the first-class path.
+- Feature-space views are diagnostic projections, not formal statistical proof.
+- Probe-case logging is intentionally sampled; it is not meant to store every training
+  batch or every dense feature volume.
+- Very large runs should log a small, fixed set of representative cases.
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
