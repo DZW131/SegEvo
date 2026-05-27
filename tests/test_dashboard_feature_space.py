@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 
@@ -5,8 +7,10 @@ from segevo.dashboard import (
     _centroid_dataframe,
     _default_regions_for_preset,
     _feature_coord_to_image_coord,
+    _feature_space_html_name,
     _feature_separation_metrics,
     _nearest_epoch,
+    _projection_title,
     _selected_point_id,
 )
 
@@ -78,3 +82,23 @@ def test_feature_point_selection_and_coordinate_mapping():
         spatial_shape=(10, 10),
         image_shape=(100, 200, 3),
     ) == (25, 90)
+
+
+def test_projection_title_and_export_name_include_projection_method():
+    pca_projection = SimpleNamespace(
+        layer="down2",
+        method="PCA 3D",
+        explained_variance_ratio=(0.5, 0.25, 0.1),
+    )
+    umap_projection = SimpleNamespace(
+        layer="down2",
+        method="UMAP 3D",
+        explained_variance_ratio=(0.0, 0.0, 0.0),
+    )
+
+    assert _projection_title(pca_projection) == "down2 3D PCA (PC1 50.0%, PC2 25.0%, PC3 10.0%)"
+    assert _projection_title(umap_projection) == "down2 UMAP 3D"
+    assert (
+        _feature_space_html_name("down/2", 4, "Errors only (FP/FN)", "t-SNE 3D")
+        == "segevo_feature_space_down_2_t-sne_3d_epoch0004_Errors_only__FP_FN_.html"
+    )

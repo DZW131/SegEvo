@@ -1,10 +1,13 @@
 import numpy as np
+import pytest
 
 from segevo.feature_space import (
     FeatureSpace,
+    PROJECTION_METHODS,
     available_feature_layers,
     downsample_feature_space,
     load_feature_space,
+    normalize_projection_method,
     pca_2d,
     pca_3d,
     project_feature_space,
@@ -68,8 +71,21 @@ def test_load_and_project_feature_space_from_run(tmp_path):
     projection = project_feature_space(space)
     assert projection.x.shape == projection.y.shape == projection.z.shape == space.region_ids.shape
     assert projection.layer == "manual_layer"
+    assert projection.method == "PCA 3D"
+    assert projection.axis_names == ("PC1", "PC2", "PC3")
     assert projection.feature_spatial_shapes is not None
     assert projection.feature_spatial_shapes.shape == space.coords.shape
+
+
+def test_projection_method_aliases_and_validation():
+    assert PROJECTION_METHODS == ("PCA 3D", "UMAP 3D", "t-SNE 3D")
+    assert normalize_projection_method("pca") == "PCA 3D"
+    assert normalize_projection_method("umap") == "UMAP 3D"
+    assert normalize_projection_method("tsne") == "t-SNE 3D"
+    assert normalize_projection_method("t-SNE 3D") == "t-SNE 3D"
+
+    with pytest.raises(ValueError, match="Unknown projection method"):
+        normalize_projection_method("isomap")
 
 
 def test_downsample_feature_space_keeps_epoch_region_strata():

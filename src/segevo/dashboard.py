@@ -10,6 +10,8 @@ import pandas as pd
 from segevo.artifacts import list_cases, list_epochs, load_array, read_manifest, sanitize_id
 from segevo.boundary_learning import boundary_learning_records
 from segevo.feature_space import (
+    PROJECTION_METHODS,
+    ProjectionUnavailableError,
     available_feature_layers,
     load_feature_space,
     project_feature_space,
@@ -162,36 +164,41 @@ better as training continues?
 This page does not show the mask directly. It shows how the model represents different
 types of pixels or voxels inside a selected layer. SegEvo samples foreground, boundary,
 hard background, false-positive, and false-negative locations, takes their layer features,
-and projects those high-dimensional vectors into a 3D PCA plot.
+and projects those high-dimensional vectors into a 3D plot with PCA, UMAP, or t-SNE.
 
-The axes `PC1`, `PC2`, and `PC3` are not image coordinates. They are feature-space
-coordinates. Do not ask whether PC1 means left/right or bright/dark. Instead, ask:
-are useful regions forming separate groups, are error points moving closer to correct
-regions, and are centroid trajectories stabilizing across epochs?
+The projection axes are not image coordinates. Do not ask whether a projection axis
+means left/right or bright/dark. Instead, ask: are useful regions forming separate
+groups, are error points moving closer to correct regions, and are centroid trajectories
+stabilizing across epochs?
 
 **How to use it**
 
 1. `Layer`: choose which hooked network layer to inspect. Early layers usually respond
    to texture, stain, edge, and intensity. Deeper layers usually carry more class or
    shape information.
-2. `Epoch`: this is synced with the sidebar epoch. If the sidebar says epoch 6, this
+2. `Projection`: keep `PCA 3D` as the default for stable epoch-to-epoch comparison.
+   `UMAP 3D` and `t-SNE 3D` are better for exploring local cluster structure.
+3. `Epoch`: this is synced with the sidebar epoch. If the sidebar says epoch 6, this
    page also focuses on epoch 6.
-3. `Region preset`: start here instead of manually clicking many labels.
+4. `Region preset`: start here instead of manually clicking many labels.
    `All regions` shows everything, `Core regions` shows foreground/boundary/hard
    background, `Errors only (FP/FN)` isolates mistakes, and `Boundary focus` is useful
    when debugging edge errors.
-4. `Display`: use `Points + centroid trajectories` for the normal view. `Points only`
+5. `Display`: use `Points + centroid trajectories` for the normal view. `Points only`
    is cleaner when there are many samples. `Centroids only` is best when you want to
    see how each region moves through training.
-5. `Epoch playback`: turn this on when you want an animation from early epochs to the
+6. `Epoch playback`: turn this on when you want an animation from early epochs to the
    current sidebar epoch.
-6. `Surface`: `Convex hull` wraps a region with a transparent shell; `Density cloud`
+7. `Surface`: `Convex hull` wraps a region with a transparent shell; `Density cloud`
    gives a softer volume-like impression. These are most useful for foreground,
    boundary, and hard background.
-7. Click any point to fill `Point Detail`. It tells you the point's case, epoch, region,
+8. Click any point to fill `Point Detail`. It tells you the point's case, epoch, region,
    feature coordinate, and mapped image location.
-8. `Export 3D HTML` downloads the interactive plot for reports, slides, papers, or
+9. `Export 3D HTML` downloads the interactive plot for reports, slides, papers, or
    GitHub issues.
+
+Projection rule of thumb: PCA is more stable, while UMAP/t-SNE are better for exploring
+local cluster structure. Treat UMAP/t-SNE as exploratory views, not exact global maps.
 
 **How to interpret common patterns**
 
@@ -229,29 +236,33 @@ regions, and are centroid trajectories stabilizing across epochs?
 
 这个页面不是直接看 mask，而是看“模型内部怎么看这些像素/体素”。SegEvo 会从
 foreground、boundary、hard background、false positive、false negative 这些区域采样，
-取出它们在某个网络层里的 feature vector，然后用 3D PCA 压到三维空间里画出来。
+取出它们在某个网络层里的 feature vector，然后用 PCA、UMAP 或 t-SNE 压到三维空间里画出来。
 
-这里的 `PC1`、`PC2`、`PC3` 不是原图坐标，不代表图像里的上下左右，也不直接代表亮度或颜色。
-更应该看的问题是：不同区域的点群有没有分开，错误点有没有往正确点群靠近，中心轨迹到后期
-是否越来越稳定。
+这里的投影坐标不是原图坐标，不代表图像里的上下左右，也不直接代表亮度或颜色。更应该看的问题是：
+不同区域的点群有没有分开，错误点有没有往正确点群靠近，中心轨迹到后期是否越来越稳定。
 
 **怎么操作**
 
 1. `Layer`：选择要看的网络层。浅层通常更像是在看纹理、染色、边缘、强度；深层通常更接近
    类别、形状和语义。
-2. `Epoch`：这里跟左侧全局 epoch 同步。左侧是 epoch 6，这里看的也是 epoch 6。
-3. `Region preset`：建议先用这个，不用一上来手动点很多标签。`All regions` 看全部；
+2. `Projection`：默认使用 `PCA 3D`，它更适合稳定地比较不同 epoch。`UMAP 3D` 和
+   `t-SNE 3D` 更适合探索局部聚类结构。
+3. `Epoch`：这里跟左侧全局 epoch 同步。左侧是 epoch 6，这里看的也是 epoch 6。
+4. `Region preset`：建议先用这个，不用一上来手动点很多标签。`All regions` 看全部；
    `Core regions` 看 foreground / boundary / hard background；`Errors only (FP/FN)` 只看错误点；
    `Boundary focus` 适合排查边界问题。
-4. `Display`：常规建议用 `Points + centroid trajectories`。点太多时用 `Points only` 更清爽；
+5. `Display`：常规建议用 `Points + centroid trajectories`。点太多时用 `Points only` 更清爽；
    想看训练过程中的区域移动趋势时，用 `Centroids only`。
-5. `Epoch playback`：打开后可以播放从早期到当前左侧 epoch 的点云变化。
-6. `Surface`：`Convex hull` 会给点群包一层透明外壳；`Density cloud` 更像一个柔和的密度云。
+6. `Epoch playback`：打开后可以播放从早期到当前左侧 epoch 的点云变化。
+7. `Surface`：`Convex hull` 会给点群包一层透明外壳；`Density cloud` 更像一个柔和的密度云。
    它们主要用于看 foreground、boundary、hard background 的覆盖范围。
-7. 点击 3D 图里的任意点，右侧 `Point Detail` 会显示它来自哪个 case、epoch、region、
+8. 点击 3D 图里的任意点，右侧 `Point Detail` 会显示它来自哪个 case、epoch、region、
    feature 坐标，以及映射回原图的大致位置。
-8. `Export 3D HTML` 可以把当前交互式 3D 图导出，后续放到汇报、论文补充材料或 GitHub issue
+9. `Export 3D HTML` 可以把当前交互式 3D 图导出，后续放到汇报、论文补充材料或 GitHub issue
    里都比较方便。
+
+投影方式的经验判断：PCA 更稳定，UMAP/t-SNE 更适合探索局部聚类结构。UMAP/t-SNE 更适合辅助发现
+局部簇，不建议把它们当成严格的全局距离地图。
 
 **常见现象怎么判断**
 
@@ -524,6 +535,15 @@ def _render_feature_space(
     controls, plot_area, metrics_area = st.columns([1.1, 3.2, 1.15])
     with controls:
         layer = st.selectbox("Layer", layers)
+        projection_method = st.selectbox(
+            "Projection",
+            list(PROJECTION_METHODS),
+            index=0,
+            help=(
+                "PCA is the most stable for epoch-to-epoch comparison. "
+                "UMAP/t-SNE are better for exploring local cluster structure."
+            ),
+        )
         case_scope = st.radio("Cases", ["Current case", "All cases"], horizontal=False)
         if case_scope == "Current case":
             selected_cases = [current_case_id]
@@ -566,7 +586,11 @@ def _render_feature_space(
         st.info("No sampled features found for this layer/case/epoch selection.")
         return
 
-    projection = project_feature_space(space)
+    try:
+        projection = project_feature_space(space, method=projection_method)
+    except ProjectionUnavailableError as exc:
+        st.warning(str(exc))
+        return
     df = _projection_dataframe(projection)
     all_regions = _ordered_regions(df["region"].dropna().unique())
 
@@ -609,12 +633,7 @@ def _render_feature_space(
         st.info("No sampled features found for this epoch/region selection.")
         return
 
-    title = (
-        f"{layer} 3D PCA "
-        f"(PC1 {projection.explained_variance_ratio[0]:.1%}, "
-        f"PC2 {projection.explained_variance_ratio[1]:.1%}, "
-        f"PC3 {projection.explained_variance_ratio[2]:.1%})"
-    )
+    title = _projection_title(projection)
     show_points = display_mode in {"Points + centroid trajectories", "Points only"}
     show_centroids = display_mode in {"Points + centroid trajectories", "Centroids only"}
     plot_points_df = history_df if animate_epochs else points_df
@@ -666,9 +685,9 @@ def _render_feature_space(
     fig.update_layout(
         height=720,
         scene={
-            "xaxis_title": "PC1",
-            "yaxis_title": "PC2",
-            "zaxis_title": "PC3",
+            "xaxis_title": projection.axis_names[0],
+            "yaxis_title": projection.axis_names[1],
+            "zaxis_title": projection.axis_names[2],
             "aspectmode": "cube",
         },
         legend_title_text="region",
@@ -683,7 +702,12 @@ def _render_feature_space(
         st.download_button(
             "Export 3D HTML",
             data=fig.to_html(include_plotlyjs="cdn", full_html=True),
-            file_name=_feature_space_html_name(layer, focus_epoch, region_preset),
+            file_name=_feature_space_html_name(
+                layer,
+                focus_epoch,
+                region_preset,
+                projection.method,
+            ),
             mime="text/html",
         )
         summary = (
@@ -1470,10 +1494,34 @@ def _format_coord(coord: tuple[int, ...] | None) -> str:
     return ",".join(str(int(value)) for value in coord)
 
 
-def _feature_space_html_name(layer: str, epoch: int, region_preset: str) -> str:
+def _projection_title(projection: object) -> str:
+    method = str(getattr(projection, "method", "PCA 3D"))
+    layer = str(getattr(projection, "layer", "layer"))
+    ratios = tuple(float(value) for value in getattr(projection, "explained_variance_ratio", ()))
+    if method == "PCA 3D" and len(ratios) >= 3:
+        return (
+            f"{layer} 3D PCA "
+            f"(PC1 {ratios[0]:.1%}, PC2 {ratios[1]:.1%}, PC3 {ratios[2]:.1%})"
+        )
+    return f"{layer} {method}"
+
+
+def _feature_space_html_name(
+    layer: str,
+    epoch: int,
+    region_preset: str,
+    projection_method: str = "PCA 3D",
+) -> str:
     safe_layer = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in layer)
     safe_preset = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in region_preset)
-    return f"segevo_feature_space_{safe_layer}_epoch{int(epoch):04d}_{safe_preset}.html"
+    safe_method = "".join(
+        ch if ch.isalnum() or ch in {"-", "_"} else "_"
+        for ch in projection_method.lower().replace(" ", "_")
+    )
+    return (
+        f"segevo_feature_space_{safe_layer}_{safe_method}_"
+        f"epoch{int(epoch):04d}_{safe_preset}.html"
+    )
 
 
 def _projection_dataframe(projection: object) -> pd.DataFrame:

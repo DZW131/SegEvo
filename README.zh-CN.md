@@ -24,8 +24,9 @@ https://github.com/user-attachments/assets/869d7d83-a646-448b-b71c-8e0e5c1dde7c
 
 ![SegEvo 3D feature-space dashboard](docs/assets/feature-space-3d-preview.png)
 
-3D Feature Space 页面可以展示 foreground、boundary、hard background、false positive、
-false negative 这些采样特征在训练过程中的移动、聚集与分离情况。
+3D Feature Space 页面支持 PCA、UMAP 和 t-SNE 三种投影方式，可以展示 foreground、
+boundary、hard background、false positive、false negative 这些采样特征在训练过程中的移动、
+聚集与分离情况。PCA 更稳定，UMAP/t-SNE 更适合探索局部聚类结构。
 
 ## 为什么需要 SegEvo
 
@@ -57,7 +58,7 @@ dashboard 目前有三个主要页面：
 | 页面 | 看到什么 | 能读出什么训练信息 |
 | --- | --- | --- |
 | `Case Timeline` | Image + GT、Image + Prediction、FP/FN Error Map、指标曲线、当前 epoch 训练读数。 | 这个固定病例是否在变好，错误主要来自 FP 还是 FN，指标变好是否真的对应视觉变好。 |
-| `Feature Space` | 中间层采样特征的稳定 3D PCA 投影、区域预设、只看 FP/FN、中心轨迹、epoch 播放、convex hull / density surface、点选定位、HTML 导出。 | 模型内部是否把 foreground、boundary、hard background、FP、FN 组织成更清楚的特征簇。 |
+| `Feature Space` | 中间层采样特征的稳定 3D PCA 投影，以及探索性的 UMAP/t-SNE 投影、区域预设、只看 FP/FN、中心轨迹、epoch 播放、convex hull / density surface、点选定位、HTML 导出。 | 模型内部是否把 foreground、boundary、hard background、FP、FN 组织成更清楚的特征簇。PCA 更稳定，UMAP/t-SNE 更适合探索局部聚类结构。 |
 | `Boundary Learning` | boundary Dice、surface Dice、HD95、边界特征分离趋势、边界训练读数。 | 模型是否真的学到了可用边界，而不是只有粗略 mask 重叠变好。 |
 
 每个页面顶部都有中英文说明，包含控件怎么用、图怎么看、以及可以从图里推断哪些训练状态。
@@ -342,7 +343,7 @@ U-Net smoke test。
 
 - 更多 2D / 3D 医学影像分割项目接入示例。
 - 原生 multiclass segmentation 支持。
-- UMAP 等更多 feature-space 投影方式。
+- 针对大规模 run 的 UMAP/t-SNE feature-space 投影缓存与加速。
 - Failure Explorer，用于定位不稳定、反复遗忘、后期仍错误的 probe 病例。
 - 更适合论文和报告的导出格式。
 

@@ -1,4 +1,4 @@
-"""Feature-space loading and stable PCA projection."""
+"""Feature-space loading and 3D projection utilities."""
 
 from __future__ import annotations
 
@@ -8,6 +8,9 @@ from pathlib import Path
 import numpy as np
 
 from segevo.artifacts import list_cases, list_epochs, sanitize_id
+
+DEFAULT_PROJECTION_METHOD = "PCA 3D"
+PROJECTION_METHODS = ("PCA 3D", "UMAP 3D", "t-SNE 3D")
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,7 @@ class FeatureSpace:
 @dataclass(frozen=True)
 class FeatureProjection:
     layer: str
+    method: str
     x: np.ndarray
     y: np.ndarray
     z: np.ndarray
@@ -33,8 +37,13 @@ class FeatureProjection:
     case_ids: np.ndarray
     epochs: np.ndarray
     feature_coords: np.ndarray
+    axis_names: tuple[str, str, str]
     explained_variance_ratio: tuple[float, ...]
     feature_spatial_shapes: np.ndarray | None = None
+
+
+class ProjectionUnavailableError(RuntimeError):
+    """Raised when an optional projection backend is not installed."""
 
 
 def available_feature_layers(run_dir: str | Path) -> list[str]:
@@ -133,10 +142,28 @@ def load_feature_space(
     return feature_space
 
 
-def project_feature_space(feature_space: FeatureSpace) -> FeatureProjection:
-    x, y, z, explained = pca_3d(feature_space.features)
+def project_feature_space(
+    feature_space: FeatureSpace,
+    method: str = DEFAULT_PROJECTION_METHOD,
+    random_state: int = 13,
+) -> FeatureProjection:
+    """Project high-dimensional feature samples into a 3D diagnostic space."""
+    normalized_method = normalize_projection_method(method)
+    if normalized_method == "PCA 3D":
+        x, y, z, explained = pca_3d(feature_space.features)
+        axis_names = ("PC1", "PC2", "PC3")
+    elif normalized_method == "UMAP 3D":
+        x, y, z = umap_3d(feature_space.features, random_state=random_state)
+        explained = (0.0, 0.0, 0.0)
+        axis_names = ("UMAP1", "UMAP2", "UMAP3")
+    else:
+        x, y, z = tsne_3d(feature_space.features, random_state=random_state)
+        explained = (0.0, 0.0, 0.0)
+        axis_names = ("t-SNE1", "t-SNE2", "t-SNE3")
+
     return FeatureProjection(
         layer=feature_space.layer,
+        method=normalized_method,
         x=x,
         y=y,
         z=z,
@@ -145,9 +172,32 @@ def project_feature_space(feature_space: FeatureSpace) -> FeatureProjection:
         case_ids=feature_space.case_ids,
         epochs=feature_space.epochs,
         feature_coords=feature_space.coords,
+        axis_names=axis_names,
         explained_variance_ratio=explained,
         feature_spatial_shapes=feature_space.spatial_shapes,
     )
+
+
+def normalize_projection_method(method: str) -> str:
+    value = str(method).strip().lower().replace("_", "-")
+    aliases = {
+        "pca": "PCA 3D",
+        "pca 3d": "PCA 3D",
+        "3d pca": "PCA 3D",
+        "umap": "UMAP 3D",
+        "umap 3d": "UMAP 3D",
+        "3d umap": "UMAP 3D",
+        "tsne": "t-SNE 3D",
+        "t-sne": "t-SNE 3D",
+        "tsne 3d": "t-SNE 3D",
+        "t-sne 3d": "t-SNE 3D",
+        "3d tsne": "t-SNE 3D",
+        "3d t-sne": "t-SNE 3D",
+    }
+    if value not in aliases:
+        choices = ", ".join(PROJECTION_METHODS)
+        raise ValueError(f"Unknown projection method {method!r}; choose one of: {choices}")
+    return aliases[value]
 
 
 def downsample_feature_space(
@@ -228,9 +278,78 @@ def pca_2d(features: np.ndarray) -> tuple[np.ndarray, np.ndarray, tuple[float, f
     return coords[:, 0], coords[:, 1], (ratios[0], ratios[1])
 
 
-def pca_3d(features: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float, float]]:
+def pca_3d(
+    features: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float, float]]:
     coords, ratios = pca_nd(features, n_components=3)
     return coords[:, 0], coords[:, 1], coords[:, 2], (ratios[0], ratios[1], ratios[2])
+
+
+def umap_3d(
+    features: np.ndarray,
+    random_state: int = 13,
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    try:
+        from umap import UMAP
+    except ImportError as exc:
+        raise ProjectionUnavailableError(
+            "UMAP 3D requires the optional dependency `umap-learn`. "
+            "Install SegEvo with `python -m pip install -e .[dashboard]` or run "
+            "`python -m pip install umap-learn`."
+        ) from exc
+
+    x = _projection_features(features)
+    if x.shape[0] < 4:
+        coords, _ratios = pca_nd(x, n_components=3)
+    else:
+        neighbors = min(max(2, int(n_neighbors)), x.shape[0] - 1)
+        reducer = UMAP(
+            n_components=3,
+            n_neighbors=neighbors,
+            min_dist=float(min_dist),
+            metric="euclidean",
+            init="random",
+            random_state=int(random_state),
+        )
+        coords = reducer.fit_transform(x).astype(np.float32, copy=False)
+    return coords[:, 0], coords[:, 1], coords[:, 2]
+
+
+def tsne_3d(
+    features: np.ndarray,
+    random_state: int = 13,
+    perplexity: float | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    try:
+        from sklearn.manifold import TSNE
+    except ImportError as exc:
+        raise ProjectionUnavailableError(
+            "t-SNE 3D requires the optional dependency `scikit-learn`. "
+            "Install SegEvo with `python -m pip install -e .[dashboard]` or run "
+            "`python -m pip install scikit-learn`."
+        ) from exc
+
+    x = _projection_features(features)
+    if x.shape[0] < 4:
+        coords, _ratios = pca_nd(x, n_components=3)
+    else:
+        chosen_perplexity = (
+            min(30.0, max(2.0, float(x.shape[0] - 1) / 3.0))
+            if perplexity is None
+            else float(perplexity)
+        )
+        chosen_perplexity = min(chosen_perplexity, float(x.shape[0] - 1))
+        reducer = TSNE(
+            n_components=3,
+            perplexity=chosen_perplexity,
+            init="pca",
+            learning_rate="auto",
+            random_state=int(random_state),
+        )
+        coords = reducer.fit_transform(x).astype(np.float32, copy=False)
+    return coords[:, 0], coords[:, 1], coords[:, 2]
 
 
 def pca_nd(features: np.ndarray, n_components: int) -> tuple[np.ndarray, tuple[float, ...]]:
@@ -259,8 +378,21 @@ def pca_nd(features: np.ndarray, n_components: int) -> tuple[np.ndarray, tuple[f
     explained = singular_values**2
     total = float(explained.sum())
     ratios = explained / total if total > 0 else np.zeros_like(explained)
-    padded_ratios = [float(ratios[index]) if index < ratios.size else 0.0 for index in range(n_components)]
+    padded_ratios = [
+        float(ratios[index]) if index < ratios.size else 0.0
+        for index in range(n_components)
+    ]
     return coords, tuple(padded_ratios)
+
+
+def _projection_features(features: np.ndarray) -> np.ndarray:
+    x = np.asarray(features, dtype=np.float32)
+    x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+    if x.ndim != 2:
+        raise ValueError(f"features must be 2D, got shape {x.shape}")
+    if x.size == 0:
+        return np.zeros((0, 0), dtype=np.float32)
+    return x
 
 
 def _features_path(run_dir: Path, case_id: str, epoch: int) -> Path:

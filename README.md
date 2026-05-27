@@ -27,8 +27,10 @@ The demo walks through the SegEvo dashboard, including case-level training evolu
 
 ![SegEvo 3D feature-space dashboard](docs/assets/feature-space-3d-preview.png)
 
-The 3D Feature Space view shows how foreground, boundary, hard background, false
-positive, and false negative feature samples move and separate across epochs.
+The 3D Feature Space view supports PCA, UMAP, and t-SNE projections to show how
+foreground, boundary, hard background, false positive, and false negative feature
+samples move and separate across epochs. PCA is more stable; UMAP/t-SNE are better
+for exploring local cluster structure.
 
 ## Why SegEvo
 
@@ -62,7 +64,7 @@ The dashboard has three main pages:
 | Page | What it shows | What you can learn |
 | --- | --- | --- |
 | `Case Timeline` | Image + GT, image + prediction, FP/FN error map, metric timeline, and current-epoch training readout. | Whether a fixed probe case is improving, whether errors are mostly FP or FN, and whether visual quality matches metric improvement. |
-| `Feature Space` | Stable 3D PCA projection of sampled layer features, region presets, FP/FN focus mode, centroid trajectories, epoch playback, optional convex hull or density surfaces, point inspection, and HTML export. | Whether the model's internal representation is organizing foreground, boundary, hard background, FP, and FN into meaningful groups. |
+| `Feature Space` | Stable 3D PCA plus exploratory UMAP/t-SNE projections of sampled layer features, region presets, FP/FN focus mode, centroid trajectories, epoch playback, optional convex hull or density surfaces, point inspection, and HTML export. | Whether the model's internal representation is organizing foreground, boundary, hard background, FP, and FN into meaningful groups. PCA is more stable; UMAP/t-SNE are better for exploring local cluster structure. |
 | `Boundary Learning` | Boundary Dice, surface Dice, HD95, boundary feature separation, and a boundary training readout. | Whether the model is learning usable boundaries instead of only coarse mask overlap. |
 
 Each page includes an expanded bilingual usage guide in the app explaining the controls,
@@ -360,7 +362,7 @@ Good first contribution areas:
 
 - More integration examples for 2D/3D medical segmentation projects.
 - Native multiclass segmentation support.
-- Additional feature-space projections such as UMAP.
+- Better large-run caching and acceleration for UMAP/t-SNE feature-space projections.
 - Failure explorer for unstable or forgotten probe cases.
 - Better export formats for reports and papers.
 
