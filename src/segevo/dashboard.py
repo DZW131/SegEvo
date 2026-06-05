@@ -21,9 +21,9 @@ from segevo.feature_space import (
 ERROR_COLORS = np.asarray(
     [
         [0, 0, 0],
-        [52, 199, 89],
-        [255, 149, 0],
-        [255, 69, 58],
+        [0, 220, 105],
+        [255, 170, 0],
+        [255, 45, 85],
     ],
     dtype=np.float32,
 ) / 255.0
@@ -457,16 +457,46 @@ def _render_case_timeline(
 
     image_slice, gt_slice, pred_slice, err_slice = _select_slice(st, image, gt, pred, err)
 
+    high_contrast, overlay_alpha, error_alpha, show_error_tp = _timeline_display_controls(st)
+    _render_timeline_legend(st, show_error_tp=show_error_tp)
+
     col_image, col_pred, col_error = st.columns(3)
     with col_image:
         st.subheader("Image + GT")
-        st.image(_overlay(image_slice, gt_slice, color=(52, 199, 89)), clamp=True)
+        _st_image(
+            st,
+            _overlay(
+                image_slice,
+                gt_slice,
+                color=(0, 220, 105),
+                alpha=overlay_alpha,
+                high_contrast=high_contrast,
+            ),
+        )
     with col_pred:
         st.subheader("Image + Prediction")
-        st.image(_overlay(image_slice, pred_slice, color=(0, 122, 255)), clamp=True)
+        _st_image(
+            st,
+            _overlay(
+                image_slice,
+                pred_slice,
+                color=(0, 122, 255),
+                alpha=overlay_alpha,
+                high_contrast=high_contrast,
+            ),
+        )
     with col_error:
         st.subheader("Error Map")
-        st.image(_error_overlay(image_slice, err_slice), clamp=True)
+        _st_image(
+            st,
+            _error_overlay(
+                image_slice,
+                err_slice,
+                alpha=error_alpha,
+                high_contrast=high_contrast,
+                show_true_positive=show_error_tp,
+            ),
+        )
 
     case_metrics = _case_metric_frame(metrics, case_id)
     _render_case_training_readout(st, case_metrics, epoch, err)
@@ -896,6 +926,15 @@ def _rgb_base(image: np.ndarray) -> np.ndarray:
     return np.repeat(_normalize(image)[..., None], 3, axis=-1)
 
 
+def _readable_base(image: np.ndarray, high_contrast: bool = True) -> np.ndarray:
+    base = _rgb_base(image)
+    if not high_contrast:
+        return base
+    gray = np.tensordot(base[..., :3], np.asarray([0.299, 0.587, 0.114]), axes=([-1], [0]))
+    gray_rgb = np.repeat(gray[..., None], 3, axis=-1)
+    return np.clip(0.18 + 0.62 * gray_rgb, 0.0, 1.0).astype(np.float32, copy=False)
+
+
 def _is_rgb_image(image: np.ndarray) -> bool:
     image = np.asarray(image)
     return image.ndim == 3 and image.shape[-1] in {3, 4}
@@ -905,22 +944,110 @@ def _overlay(
     image: np.ndarray,
     mask: np.ndarray,
     color: tuple[int, int, int],
-    alpha: float = 0.38,
+    alpha: float = 0.72,
+    high_contrast: bool = True,
 ) -> np.ndarray:
-    base = _rgb_base(image)
+    base = _readable_base(image, high_contrast=high_contrast)
     mask_b = np.asarray(mask) > 0
     overlay_color = np.asarray(color, dtype=np.float32) / 255.0
     base[mask_b] = (1.0 - alpha) * base[mask_b] + alpha * overlay_color
+    _paint_outline(base, mask_b)
     return base
 
 
-def _error_overlay(image: np.ndarray, err: np.ndarray, alpha: float = 0.48) -> np.ndarray:
-    base = _rgb_base(image)
+def _error_overlay(
+    image: np.ndarray,
+    err: np.ndarray,
+    alpha: float = 0.84,
+    high_contrast: bool = True,
+    show_true_positive: bool = False,
+) -> np.ndarray:
+    base = _readable_base(image, high_contrast=high_contrast)
     err_i = np.asarray(err, dtype=np.int64)
-    mask = err_i > 0
+    mask = err_i > 0 if show_true_positive else err_i > 1
     colors = ERROR_COLORS[np.clip(err_i, 0, len(ERROR_COLORS) - 1)]
     base[mask] = (1.0 - alpha) * base[mask] + alpha * colors[mask]
+    _paint_outline(base, mask)
     return base
+
+
+def _paint_outline(base: np.ndarray, mask: np.ndarray) -> None:
+    outline = _mask_outline(mask)
+    if outline.any():
+        base[outline] = np.asarray([1.0, 1.0, 1.0], dtype=np.float32)
+
+
+def _mask_outline(mask: np.ndarray) -> np.ndarray:
+    mask_b = np.asarray(mask) > 0
+    if mask_b.ndim != 2 or not mask_b.any():
+        return np.zeros(mask_b.shape, dtype=bool)
+    try:
+        from scipy import ndimage
+    except ImportError:
+        eroded = mask_b.copy()
+        eroded[1:-1, 1:-1] &= mask_b[:-2, 1:-1]
+        eroded[1:-1, 1:-1] &= mask_b[2:, 1:-1]
+        eroded[1:-1, 1:-1] &= mask_b[1:-1, :-2]
+        eroded[1:-1, 1:-1] &= mask_b[1:-1, 2:]
+        return mask_b ^ eroded
+    structure = ndimage.generate_binary_structure(2, 1)
+    surface = mask_b ^ ndimage.binary_erosion(mask_b, structure=structure, border_value=0)
+    return ndimage.binary_dilation(surface, structure=structure, iterations=1)
+
+
+def _st_image(st: object, image: np.ndarray) -> None:
+    try:
+        st.image(image, clamp=True, width="stretch")
+    except TypeError:
+        st.image(image, clamp=True, use_container_width=True)
+
+
+def _timeline_display_controls(st: object) -> tuple[bool, float, float, bool]:
+    with st.expander("Display controls / 图像显示控制", expanded=False):
+        high_contrast = st.checkbox(
+            "High-contrast overlays / 高对比叠加",
+            value=True,
+            help="Dim and desaturate the base image, then draw masks with stronger color.",
+        )
+        overlay_alpha = st.slider(
+            "GT / prediction opacity",
+            min_value=0.30,
+            max_value=0.95,
+            value=0.72,
+            step=0.05,
+        )
+        error_alpha = st.slider(
+            "Error-map opacity",
+            min_value=0.30,
+            max_value=0.95,
+            value=0.84,
+            step=0.05,
+        )
+        show_error_tp = st.checkbox(
+            "Show TP in Error Map / 在错误图中显示正确前景",
+            value=False,
+            help=(
+                "Off by default so the Error Map focuses on FP/FN. "
+                "Turn it on when you also want to see correct foreground overlap."
+            ),
+        )
+    return bool(high_contrast), float(overlay_alpha), float(error_alpha), bool(show_error_tp)
+
+
+def _render_timeline_legend(st: object, show_error_tp: bool = False) -> None:
+    tp_note = "TP shown in Error Map" if show_error_tp else "Error Map hides TP by default"
+    st.markdown(
+        f"""
+<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:0.15rem 0 0.5rem 0;">
+  <span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#00dc69;border:1px solid #fff;box-shadow:0 0 0 1px #444;"></span> GT / TP</span>
+  <span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#007aff;border:1px solid #fff;box-shadow:0 0 0 1px #444;"></span> Prediction</span>
+  <span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#ffaa00;border:1px solid #fff;box-shadow:0 0 0 1px #444;"></span> FP 多分</span>
+  <span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#ff2d55;border:1px solid #fff;box-shadow:0 0 0 1px #444;"></span> FN 漏分</span>
+  <span style="opacity:0.72;font-size:0.86rem;">{tp_note}</span>
+</div>
+        """.strip(),
+        unsafe_allow_html=True,
+    )
 
 
 def _render_page_guide(st: object, page: str) -> None:

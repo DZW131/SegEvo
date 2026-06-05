@@ -26,3 +26,24 @@ def test_error_overlay_preserves_rgb_image_shape():
     assert rendered.shape == (8, 8, 3)
     assert rendered[3, 3, 0] > rendered[0, 0, 0]
 
+
+def test_error_overlay_hides_true_positives_by_default():
+    image = np.zeros((8, 8, 3), dtype=np.float32)
+    error = np.zeros((8, 8), dtype=np.uint8)
+    error[1:3, 1:3] = 1
+    error[4:6, 4:6] = 2
+
+    rendered = _error_overlay(image, error)
+
+    assert np.allclose(rendered[1, 1], rendered[0, 0])
+    assert not np.allclose(rendered[4, 4], rendered[0, 0])
+
+
+def test_error_overlay_can_show_true_positives():
+    image = np.zeros((8, 8, 3), dtype=np.float32)
+    error = np.zeros((8, 8), dtype=np.uint8)
+    error[1:3, 1:3] = 1
+
+    rendered = _error_overlay(image, error, show_true_positive=True)
+
+    assert not np.allclose(rendered[1, 1], rendered[0, 0])
